@@ -76,6 +76,16 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
             pet[key] = default
             changed = True
 
+    if not isinstance(pet.get("level"), int) or int(pet.get("level", 0)) < 1:
+        pet["level"] = 1
+        changed = True
+    if not isinstance(pet.get("exp"), int) or int(pet.get("exp", 0)) < 0:
+        pet["exp"] = 0
+        changed = True
+    if not isinstance(pet.get("currency"), int) or int(pet.get("currency", 0)) < 0:
+        pet["currency"] = 0
+        changed = True
+
     inventory = pet.get("inventory")
     if not isinstance(inventory, dict):
         pet["inventory"] = DEFAULT_INVENTORY.copy()
@@ -342,24 +352,56 @@ def has_enough_energy(pet: dict[str, Any], amount: int) -> bool:
     return isinstance(energy, int) and energy >= amount
 
 
-def train_skill(user_id: int, skill_name: str) -> tuple[bool, dict[str, Any] | None]:
+def exp_to_next_level(level: int) -> int:
+    safe_level = level if isinstance(level, int) and level > 0 else 1
+    return 50 + (safe_level - 1) * 25
+
+
+def apply_level_ups(pet: dict[str, Any]) -> int:
+    level = pet.get("level", 1)
+    exp = pet.get("exp", 0)
+    currency = pet.get("currency", 0)
+
+    pet["level"] = level if isinstance(level, int) and level > 0 else 1
+    pet["exp"] = exp if isinstance(exp, int) and exp >= 0 else 0
+    pet["currency"] = currency if isinstance(currency, int) and currency >= 0 else 0
+
+    levels_gained = 0
+    while pet["exp"] >= exp_to_next_level(pet["level"]):
+        required = exp_to_next_level(pet["level"])
+        pet["exp"] -= required
+        pet["level"] += 1
+        pet["currency"] += 10
+        levels_gained += 1
+
+    return levels_gained
+
+
+def add_exp(pet: dict[str, Any], amount: int) -> int:
+    safe_amount = amount if isinstance(amount, int) and amount > 0 else 0
+    current_exp = pet.get("exp", 0)
+    pet["exp"] = (current_exp if isinstance(current_exp, int) and current_exp >= 0 else 0) + safe_amount
+    return apply_level_ups(pet)
+
+
+def train_skill(user_id: int, skill_name: str) -> tuple[bool, int, dict[str, Any] | None]:
     if skill_name not in DEFAULT_SKILLS:
-        return False, None
+        return False, 0, None
 
     users = load_users()
     user = users.get(str(user_id))
     if not isinstance(user, dict):
-        return False, None
+        return False, 0, None
 
     recalculate_needs(user)
     pet = user.get("pet")
     if not isinstance(pet, dict):
-        return False, None
+        return False, 0, None
 
     if not has_enough_energy(pet, 15):
         users[str(user_id)] = user
         save_users(users)
-        return False, user
+        return False, 0, user
 
     skills = pet.get("skills")
     if not isinstance(skills, dict):
@@ -372,12 +414,11 @@ def train_skill(user_id: int, skill_name: str) -> tuple[bool, dict[str, Any] | N
 
     skills[skill_name] = skill_value + 1
     pet["energy"] = clamp_need(int(pet.get("energy", 0)) - 15)
-    exp = pet.get("exp", 0)
-    pet["exp"] = (exp if isinstance(exp, int) else 0) + 5
+    levels_gained = add_exp(pet, 5)
     pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
     save_users(users)
-    return True, user
+    return True, levels_gained, user
 
 
 def can_travel(pet: dict[str, Any]) -> tuple[bool, list[str]]:
@@ -423,28 +464,28 @@ def apply_travel_event(pet: dict[str, Any], event_type: str) -> str:
     return "Peaceful walk through the forest."
 
 
-def perform_short_forest_trip(user_id: int) -> tuple[bool, list[str], dict[str, Any] | None]:
+def perform_short_forest_trip(user_id: int) -> tuple[bool, int, list[str], dict[str, Any] | None]:
     users = load_users()
     user = users.get(str(user_id))
     if not isinstance(user, dict):
-        return False, ["pet is missing"], None
+        return False, 0, ["pet is missing"], None
 
     recalculate_needs(user)
     pet = user.get("pet")
     if not isinstance(pet, dict):
-        return False, ["pet is missing"], None
+        return False, 0, ["pet is missing"], None
 
     allowed, missing = can_travel(pet)
     if not allowed:
         users[str(user_id)] = user
         save_users(users)
-        return False, missing, user
+        return False, 0, missing, user
 
     pet["energy"] = clamp_need(int(pet.get("energy", 0)) - 20)
     pet["satiety"] = clamp_need(int(pet.get("satiety", 0)) - 10)
     pet["cleanliness"] = clamp_need(int(pet.get("cleanliness", 0)) - 5)
-    pet["exp"] = int(pet.get("exp", 0)) + 10 if isinstance(pet.get("exp"), int) else 10
     pet["currency"] = int(pet.get("currency", 0)) + 5 if isinstance(pet.get("currency"), int) else 5
+    levels_gained = add_exp(pet, 10)
 
     travel = pet.get("travel")
     if not isinstance(travel, dict):
@@ -466,4 +507,4 @@ def perform_short_forest_trip(user_id: int) -> tuple[bool, list[str], dict[str, 
 
     users[str(user_id)] = user
     save_users(users)
-    return True, [], user
+    return True, levels_gained, [], user

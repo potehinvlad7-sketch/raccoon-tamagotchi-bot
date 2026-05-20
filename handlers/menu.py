@@ -2,7 +2,7 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from keyboards import care_menu_keyboard, main_menu_keyboard, shop_menu_keyboard, training_menu_keyboard, travel_menu_keyboard
-from storage import get_shop_items, get_user, perform_short_forest_trip, shop_purchase, touch_user_needs, train_skill, update_pet_need
+from storage import exp_to_next_level, get_shop_items, get_user, perform_short_forest_trip, shop_purchase, touch_user_needs, train_skill, update_pet_need
 
 
 router = Router()
@@ -14,12 +14,17 @@ def _status_text(pet: dict) -> str:
     travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
     last_event = travel.get("last_event")
     last_event_line = f"Last travel: {last_event}\n" if isinstance(last_event, str) and last_event else ""
+    level = pet.get("level", 1)
+    safe_level = level if isinstance(level, int) and level > 0 else 1
+    exp = pet.get("exp", 0)
+    safe_exp = exp if isinstance(exp, int) and exp >= 0 else 0
+    need_exp = exp_to_next_level(safe_level)
     return (
         "🐾 Raccoon Status\n"
         f"Name: {pet.get('name', '-')}\n"
         f"Gender: {pet.get('gender', '-')}\n"
-        f"Level: {pet.get('level', 1)}\n"
-        f"EXP: {pet.get('exp', 0)}\n"
+        f"Level: {safe_level}\n"
+        f"EXP: {safe_exp} / {need_exp}\n"
         f"Currency: {pet.get('currency', 0)}\n"
         f"Mood: {pet.get('mood', 'normal')}\n"
         f"Satiety: {pet.get('satiety', 80)}/100\n"
@@ -187,7 +192,7 @@ async def _train(message: Message, skill_name: str, label: str) -> None:
     if message.from_user is None:
         return
 
-    trained, user = train_skill(message.from_user.id, skill_name)
+    trained, levels_gained, user = train_skill(message.from_user.id, skill_name)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
         await message.answer("You do not have a raccoon yet. Send /start to create one.")
@@ -200,8 +205,9 @@ async def _train(message: Message, skill_name: str, label: str) -> None:
         )
         return
 
+    level_up_line = f"\nLevel up! Your raccoon reached level {pet.get('level', 1)}." if levels_gained > 0 else ""
     await message.answer(
-        f"{label} training completed! (+1 {label}, +5 EXP, -15 energy)\n\n{_status_text(pet)}",
+        f"{label} training completed! (+1 {label}, +5 EXP, -15 energy){level_up_line}\n\n{_status_text(pet)}",
         reply_markup=training_menu_keyboard(),
     )
 
@@ -226,7 +232,7 @@ async def short_forest_trip(message: Message) -> None:
     if message.from_user is None:
         return
 
-    success, missing, user = perform_short_forest_trip(message.from_user.id)
+    success, levels_gained, missing, user = perform_short_forest_trip(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
         await message.answer("You do not have a raccoon yet. Send /start to create one.")
@@ -240,10 +246,12 @@ async def short_forest_trip(message: Message) -> None:
         return
 
     last_event = pet.get("travel", {}).get("last_event", "Travel completed!")
+    level_up_line = f"\nLevel up! Your raccoon reached level {pet.get('level', 1)}." if levels_gained > 0 else ""
     await message.answer(
         "Short forest trip completed!\n"
         "Costs: -20 energy, -10 satiety, -5 cleanliness\n"
         "Rewards: +10 EXP, +5 currency\n"
+        f"{level_up_line}\n"
         f"Event: {last_event}\n\n"
         f"{_status_text(pet)}",
         reply_markup=travel_menu_keyboard(),
