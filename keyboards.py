@@ -13,8 +13,19 @@ def gender_keyboard() -> ReplyKeyboardMarkup:
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Status"), KeyboardButton(text="My Raccoon")],
-            [KeyboardButton(text="Help")],
+            [KeyboardButton(text="Status"), KeyboardButton(text="Care")],
+            [KeyboardButton(text="My Raccoon"), KeyboardButton(text="Help")],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def care_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Feed"), KeyboardButton(text="Clean")],
+            [KeyboardButton(text="Play"), KeyboardButton(text="Energy potion")],
+            [KeyboardButton(text="Back to main menu")],
         ],
         resize_keyboard=True,
     )
