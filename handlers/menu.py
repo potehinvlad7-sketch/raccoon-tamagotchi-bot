@@ -460,6 +460,7 @@ async def travel_to_location(message: Message) -> None:
         reward_lines.append(f"• ✨ Бонус опыта: +{spent['event_exp']}")
     if spent.get("event_currency", 0):
         reward_lines.append(f"• 🪙 Бонус монет: +{spent['event_currency']}")
+    enemy_result = spent.get("enemy_result", {}) if isinstance(spent.get("enemy_result"), dict) else {}
 
     item_map = {
         "food": "🍎 Яблоко",
@@ -470,6 +471,32 @@ async def travel_to_location(message: Message) -> None:
     }
     item_lines = [f"Получено: {item_map[key]} x{value}" for key, value in spent.items() if key in item_map and isinstance(value, int)]
     level_up_line = f"\n\n✨ Новый уровень! Енот достиг уровня {pet.get('level', 1)}." if levels_gained > 0 else ""
+    enemy_block = ""
+    if isinstance(event, dict) and event.get("type") == "enemy":
+        is_win = bool(enemy_result.get("win"))
+        chance = int(enemy_result.get("chance", 0))
+        battle_line = str(event.get("win_text", "Енот победил.")) if is_win else str(event.get("lose_text", "Енот отступил."))
+        outcome_line = "победа" if is_win else "поражение"
+        enemy_block = (
+            "\n\nБой:\n"
+            f"{battle_line}\n"
+            f"Шанс победы: {chance}%\n"
+            f"Результат: {outcome_line}"
+        )
+        if is_win and (enemy_result.get("extra_exp", 0) or enemy_result.get("extra_currency", 0)):
+            enemy_block += "\n\nДополнительно:\n"
+            if enemy_result.get("extra_exp", 0):
+                enemy_block += f"• ✨ Опыт: +{enemy_result['extra_exp']}\n"
+            if enemy_result.get("extra_currency", 0):
+                enemy_block += f"• 🪙 Монеты: +{enemy_result['extra_currency']}\n"
+            enemy_block = enemy_block.rstrip()
+        if (not is_win) and isinstance(enemy_result.get("penalties"), dict):
+            penalties = enemy_result["penalties"]
+            enemy_block += "\n\nПотери:\n"
+            enemy_block += f"• ⚡ Энергия: {penalties.get('energy', 0)}\n"
+            enemy_block += f"• 🧼 Чистота: {penalties.get('cleanliness', 0)}\n"
+            enemy_block += f"• 💞 Забота: {penalties.get('love', 0)}"
+
     text = (
         f"🌲 {location_name}\n\n"
         "Енот вернулся из прогулки, весь важный и немного в листьях.\n\n"
@@ -481,6 +508,7 @@ async def travel_to_location(message: Message) -> None:
         + "\n".join(reward_lines)
         + "\n\nСобытие:\n"
         + _localize_event((event or {}).get("id") if isinstance(event, dict) else None)
+        + enemy_block
         + ("\n" + "\n".join(item_lines) if item_lines else "")
         + level_up_line
     )

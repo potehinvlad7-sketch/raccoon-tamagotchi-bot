@@ -73,6 +73,37 @@ TRAVEL_EVENTS = [
     {"id": "instinct_scroll_find", "type": "rare", "text": "На бересте проступали странные следы. Это оказался свиток инстинкта 📜", "effects": {"items": {"instinct_scroll": 1}}},
 ]
 
+ENEMY_CATALOG = {
+    "field_mouse": {"id": "field_mouse", "name": "Полевая мышь", "emoji": "🐭", "difficulty": 2, "skills": {"agility": 2, "instinct": 1}},
+    "angry_crow": {"id": "angry_crow", "name": "Сердитая ворона", "emoji": "🐦‍⬛", "difficulty": 3, "skills": {"agility": 1, "instinct": 2}},
+    "mushroom_goblin": {"id": "mushroom_goblin", "name": "Грибной пакостник", "emoji": "🍄", "difficulty": 5, "skills": {"instinct": 2, "strength": 1}},
+    "thorn_hog": {"id": "thorn_hog", "name": "Колючий хрюк", "emoji": "🦔", "difficulty": 7, "skills": {"strength": 2, "agility": 1}},
+    "swamp_rat": {"id": "swamp_rat", "name": "Болотная крыса", "emoji": "🐀", "difficulty": 10, "skills": {"instinct": 2, "agility": 1}},
+    "stone_marten": {"id": "stone_marten", "name": "Каменная куница", "emoji": "🐾", "difficulty": 13, "skills": {"agility": 2, "strength": 1}},
+    "ruin_owl": {"id": "ruin_owl", "name": "Руинная сова", "emoji": "🦉", "difficulty": 18, "skills": {"instinct": 2, "agility": 1}},
+}
+
+LOCATION_ENEMIES = {
+    "forest_clearing": ["field_mouse", "angry_crow"],
+    "quiet_thicket": ["field_mouse", "angry_crow", "mushroom_goblin"],
+    "mushroom_path": ["mushroom_goblin", "thorn_hog"],
+    "old_deadfall": ["thorn_hog", "swamp_rat"],
+    "misty_stream": ["swamp_rat", "stone_marten"],
+    "stone_ravine": ["stone_marten", "ruin_owl"],
+    "forest_ruins": ["ruin_owl"],
+}
+
+ENEMY_TEXTS = {
+    "field_mouse": {"event": "🐭 Полевая мышь выскочила из травы и попыталась утащить находку.", "win": "Енот распушил хвост, сделал важный выпад и победил.", "lose": "Мышь юркнула в кусты, а енот остался озадаченно шуршать листвой."},
+    "angry_crow": {"event": "🐦‍⬛ Сердитая ворона налетела сверху и громко потребовала всё блестящее.", "win": "Енот ловко отскочил, шикнул на ворону и отстоял добычу.", "lose": "Енот героически сделал вид, что это была тактическая прогулка назад."},
+    "mushroom_goblin": {"event": "🍄 Грибной пакостник вынырнул из пней и начал дразнить енота.", "win": "Енот перехитрил пакостника и прогнал его в чащу.", "lose": "Пакостник насыпал спор в нос, и енот отступил, чихая."},
+    "thorn_hog": {"event": "🦔 Колючий хрюк преградил тропу и упрямо засопел.", "win": "Енот обошёл колючки, сделал рывок и победил.", "lose": "Хрюк боднул воздух так грозно, что енот решил не спорить."},
+    "swamp_rat": {"event": "🐀 Болотная крыса устроила грязную засаду у воды.", "win": "Енот увернулся от брызг и выгнал крысу с берега.", "lose": "Крыса обдала енота болотной жижей, и бой сорвался."},
+    "stone_marten": {"event": "🐾 Каменная куница скользнула по камням и бросилась в атаку.", "win": "Енот точно рассчитал момент и перехватил инициативу.", "lose": "Куница оказалась слишком быстрой, енот едва ушёл от погони."},
+    "ruin_owl": {"event": "🦉 Руинная сова бесшумно спикировала из древних арок.", "win": "Енот выдержал жуткий взгляд и заставил сову отступить.", "lose": "Сова кругами нагнала страху, и енот спешно ретировался."},
+}
+
+
 ITEM_CATALOG = {
     "food": {"name": "Яблоко", "emoji": "🍎", "category": "food", "need": "satiety", "restore": 50, "price": 5},
     "hearty_snack": {"name": "Сытный перекус", "emoji": "🥪", "category": "food", "need": "satiety", "restore": 90, "price": 12},
@@ -572,17 +603,48 @@ def get_travel_event(event_id: str) -> dict[str, Any] | None:
     return None
 
 
-def choose_travel_event(pet: dict[str, Any]) -> dict[str, Any]:
+def calculate_enemy_win_chance(pet: dict[str, Any], enemy: dict[str, Any]) -> int:
+    skills = pet.get("skills", {}) if isinstance(pet.get("skills"), dict) else {}
+    strength = skills.get("strength", 0) if isinstance(skills.get("strength"), int) else 0
+    agility = skills.get("agility", 0) if isinstance(skills.get("agility"), int) else 0
+    instinct = skills.get("instinct", 0) if isinstance(skills.get("instinct"), int) else 0
+    pet_level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
+    difficulty = enemy.get("difficulty", 1) if isinstance(enemy.get("difficulty"), int) else 1
+
+    base = 50
+    skill_score = int(strength * 2 + agility * 1.5 + instinct * 1.5)
+    difficulty_penalty = difficulty * 4
+    level_bonus = pet_level * 2
+    chance = base + skill_score + level_bonus - difficulty_penalty
+    return max(15, min(90, chance))
+
+
+def choose_travel_event(pet: dict[str, Any], location_id: str) -> dict[str, Any]:
     skills = pet.get("skills")
     instinct = skills.get("instinct", 0) if isinstance(skills, dict) else 0
-    weights = {"good": 35, "neutral": 40, "bad": 20, "rare": 5}
+    weights = {"good": 30, "neutral": 35, "bad": 18, "rare": 5, "enemy": 12}
     if isinstance(instinct, int) and instinct >= 7:
-        weights = {"good": 40, "neutral": 42, "bad": 10, "rare": 8}
+        weights = {"good": 37, "neutral": 37, "bad": 10, "rare": 8, "enemy": 8}
     elif isinstance(instinct, int) and instinct >= 3:
-        weights = {"good": 38, "neutral": 42, "bad": 14, "rare": 6}
+        weights = {"good": 34, "neutral": 36, "bad": 14, "rare": 6, "enemy": 10}
 
     event_types = list(weights.keys())
     chosen_type = random.choices(event_types, weights=[weights[t] for t in event_types], k=1)[0]
+    if chosen_type == "enemy":
+        available = LOCATION_ENEMIES.get(location_id, [])
+        enemy_id = random.choice(available) if available else "field_mouse"
+        enemy = ENEMY_CATALOG.get(enemy_id, ENEMY_CATALOG["field_mouse"])
+        texts = ENEMY_TEXTS.get(enemy_id, ENEMY_TEXTS["field_mouse"])
+        return {
+            "id": f"enemy_{enemy_id}",
+            "type": "enemy",
+            "enemy_id": enemy_id,
+            "text": texts["event"],
+            "enemy": enemy,
+            "win_text": texts["win"],
+            "lose_text": texts["lose"],
+        }
+
     pool = [event for event in TRAVEL_EVENTS if event.get("type") == chosen_type]
     return random.choice(pool)
 
@@ -633,7 +695,7 @@ def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str]
         pet["inventory"] = DEFAULT_INVENTORY.copy()
         inventory = pet["inventory"]
 
-    event = choose_travel_event(pet)
+    event = choose_travel_event(pet, location_id)
     effects = event.get("effects", {}) if isinstance(event.get("effects"), dict) else {}
     event_exp = int(effects.get("exp", 0)) if isinstance(effects.get("exp", 0), int) else 0
     event_currency = int(effects.get("currency", 0)) if isinstance(effects.get("currency", 0), int) else 0
@@ -653,18 +715,51 @@ def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str]
             inventory[item] = (current if isinstance(current, int) else 0) + amount
             items_delta[item] = amount
 
+    enemy_result = {"win": False, "chance": 0, "roll": 0, "extra_exp": 0, "extra_currency": 0, "penalties": {}, "drop_items": {}}
+    if event.get("type") == "enemy":
+        enemy = event.get("enemy", {}) if isinstance(event.get("enemy"), dict) else {}
+        difficulty = enemy.get("difficulty", 1) if isinstance(enemy.get("difficulty"), int) else 1
+        chance = calculate_enemy_win_chance(pet, enemy)
+        roll = random.randint(1, 100)
+        enemy_result["chance"] = chance
+        enemy_result["roll"] = roll
+        if roll <= chance:
+            enemy_result["win"] = True
+            extra_exp = difficulty
+            extra_currency = max(1, difficulty // 2)
+            levels_gained += add_exp(pet, extra_exp)
+            pet["currency"] = int(pet.get("currency", 0)) + extra_currency if isinstance(pet.get("currency"), int) else extra_currency
+            enemy_result["extra_exp"] = extra_exp
+            enemy_result["extra_currency"] = extra_currency
+            if random.random() < 0.20:
+                drop_item = random.choice(["food", "soap", "toy", "energy_potion", "hearty_snack", "comb"])
+                inventory[drop_item] = int(inventory.get(drop_item, 0)) + 1
+                items_delta[drop_item] = items_delta.get(drop_item, 0) + 1
+                enemy_result["drop_items"][drop_item] = 1
+            if random.random() < 0.08:
+                scroll = random.choice(["strength_scroll", "agility_scroll", "instinct_scroll"])
+                inventory[scroll] = int(inventory.get(scroll, 0)) + 1
+                items_delta[scroll] = items_delta.get(scroll, 0) + 1
+                enemy_result["drop_items"][scroll] = enemy_result["drop_items"].get(scroll, 0) + 1
+        else:
+            extra = difficulty // 4
+            penalties = {"energy": -(8 + extra), "cleanliness": -(6 + extra), "love": -(4 + extra)}
+            for need, delta in penalties.items():
+                pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) + delta)
+            enemy_result["penalties"] = penalties
+
     travel = pet.get("travel")
     if not isinstance(travel, dict):
         pet["travel"] = DEFAULT_TRAVEL.copy()
         travel = pet["travel"]
     travel["total_travels"] = int(travel.get("total_travels", 0)) + 1
-    travel["last_event"] = event.get("id")
+    travel["last_event"] = f"Встреча: {event.get('enemy', {}).get('name', 'Неизвестный враг')}" if event.get("type") == "enemy" else event.get("id")
 
     update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
     save_users(users)
-    return True, levels_gained, [], user, location, event, {"exp": base_exp, "currency": base_currency, "event_exp": event_exp, "event_currency": event_currency, **spent, **items_delta}
+    return True, levels_gained, [], user, location, event, {"exp": base_exp, "currency": base_currency, "event_exp": event_exp, "event_currency": event_currency, "enemy_result": enemy_result, **spent, **items_delta}
 
 
 def get_storage_stats() -> dict[str, float | int | str]:
