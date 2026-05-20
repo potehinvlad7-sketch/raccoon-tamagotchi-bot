@@ -89,7 +89,6 @@ def battle_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=BTN_BATTLE_ATTACK), KeyboardButton(text=BTN_BATTLE_RUN)],
-            [KeyboardButton(text=BTN_BACK)],
         ],
         resize_keyboard=True,
     )

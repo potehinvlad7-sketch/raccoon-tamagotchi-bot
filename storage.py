@@ -729,6 +729,17 @@ def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str]
             "enemy_id": event.get("enemy_id", "field_mouse"),
             "location_id": location_id,
             "win_chance": chance,
+            "travel_context": {
+                "location_id": location_id,
+                "base_exp": base_exp,
+                "base_currency": base_currency,
+                "event_id": None,
+                "spent_energy": spent.get("energy", 0),
+                "spent_satiety": spent.get("satiety", 0),
+                "spent_cleanliness": spent.get("cleanliness", 0),
+                "items_delta": items_delta,
+                "levels_gained": levels_gained,
+            },
             "created_at": utc_now().isoformat(),
         }
         enemy_result["pending"] = True
@@ -772,11 +783,13 @@ def resolve_battle_attack(user_id: int) -> tuple[bool, dict[str, Any] | None]:
     difficulty = enemy.get("difficulty", 1) if isinstance(enemy.get("difficulty"), int) else 1
     inventory = pet.get("inventory") if isinstance(pet.get("inventory"), dict) else DEFAULT_INVENTORY.copy()
     pet["inventory"] = inventory
-    result = {"win": win, "chance": chance, "enemy": enemy, "drop_items": {}, "levels_gained": 0}
+    travel_context = battle.get("travel_context", {}) if isinstance(battle.get("travel_context"), dict) else {}
+    result = {"win": win, "chance": chance, "enemy": enemy, "drop_items": {}, "levels_gained": 0, "travel_context": travel_context, "pet": pet, "pet_name": pet.get("name", "Енот")}
     if win:
         extra_exp = difficulty + 2
         extra_currency = max(2, difficulty)
         result["levels_gained"] = add_exp(pet, extra_exp)
+        result["travel_context"]["levels_gained"] = int(result["travel_context"].get("levels_gained", 0)) + result["levels_gained"]
         pet["currency"] = int(pet.get("currency", 0)) + extra_currency if isinstance(pet.get("currency"), int) else extra_currency
         result["extra_exp"] = extra_exp
         result["extra_currency"] = extra_currency
@@ -831,7 +844,8 @@ def resolve_battle_run(user_id: int) -> tuple[bool, dict[str, Any] | None]:
     pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
     save_users(users)
-    return True, {"escaped": escaped, "enemy": enemy, "flee_chance": flee_chance, "penalties": penalties}
+    travel_context = battle.get("travel_context", {}) if isinstance(battle.get("travel_context"), dict) else {}
+    return True, {"escaped": escaped, "enemy": enemy, "flee_chance": flee_chance, "penalties": penalties, "travel_context": travel_context, "pet": pet, "pet_name": pet.get("name", "Енот")}
 
 
 def get_storage_stats() -> dict[str, float | int | str]:
