@@ -877,3 +877,147 @@ def create_users_backup() -> tuple[bool, str]:
     backup_path = backups_dir / f"users_{timestamp}.json"
     backup_path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
     return True, str(backup_path)
+
+
+def get_all_users() -> list[tuple[int, dict[str, Any]]]:
+    users = load_users()
+    rows: list[tuple[int, dict[str, Any]]] = []
+    changed = False
+    for key, value in users.items():
+        try:
+            user_id = int(key)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(value, dict):
+            continue
+        value, user_changed = ensure_pet_defaults(value)
+        if user_changed:
+            users[key] = value
+            changed = True
+        rows.append((user_id, value))
+    if changed:
+        save_users(users)
+    rows.sort(key=lambda item: item[0])
+    return rows
+
+
+def get_user_by_id(user_id: int) -> dict[str, Any] | None:
+    return get_user(user_id)
+
+
+def admin_update_pet_value(user_id: int, field: str, delta: int) -> tuple[bool, int, int]:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False, 0, 0
+    user, _ = ensure_pet_defaults(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False, 0, 0
+
+    target = pet
+    key = field
+    if "." in field:
+        prefix, key = field.split(".", 1)
+        nested = pet.get(prefix)
+        if not isinstance(nested, dict):
+            nested = {}
+            pet[prefix] = nested
+        target = nested
+
+    current = target.get(key, 0)
+    before = current if isinstance(current, int) else 0
+    if field == "exp":
+        before = int(pet.get("exp", 0)) if isinstance(pet.get("exp"), int) else 0
+        add_exp(pet, delta)
+        after = int(pet.get("exp", 0)) if isinstance(pet.get("exp"), int) else 0
+    elif field == "level":
+        before = int(pet.get("level", 1)) if isinstance(pet.get("level"), int) else 1
+        pet["level"] = max(1, before + delta)
+        after = pet["level"]
+    else:
+        target[key] = before + delta
+        after = target[key]
+
+    for need in DEFAULT_NEEDS:
+        pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, DEFAULT_NEEDS[need])))
+    update_pet_mood(pet)
+    pet["updated_at"] = utc_now().isoformat()
+    users[str(user_id)] = user
+    save_users(users)
+    return True, before, after
+
+
+def admin_add_currency(user_id: int, amount: int) -> tuple[bool, int, int]:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False, 0, 0
+    user, _ = ensure_pet_defaults(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False, 0, 0
+    before = int(pet.get("currency", 0)) if isinstance(pet.get("currency"), int) else 0
+    pet["currency"] = max(0, before + amount)
+    pet["updated_at"] = utc_now().isoformat()
+    users[str(user_id)] = user
+    save_users(users)
+    return True, before, pet["currency"]
+
+
+def admin_add_inventory_item(user_id: int, item_key: str, amount: int = 1) -> tuple[bool, int, int]:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False, 0, 0
+    user, _ = ensure_pet_defaults(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False, 0, 0
+    inventory = pet.get("inventory")
+    if not isinstance(inventory, dict):
+        pet["inventory"] = DEFAULT_INVENTORY.copy()
+        inventory = pet["inventory"]
+    before = inventory.get(item_key, 0) if isinstance(inventory.get(item_key), int) else 0
+    inventory[item_key] = max(0, before + amount)
+    pet["updated_at"] = utc_now().isoformat()
+    users[str(user_id)] = user
+    save_users(users)
+    return True, before, inventory[item_key]
+
+
+def admin_restore_needs(user_id: int) -> bool:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False
+    user, _ = ensure_pet_defaults(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False
+    max_needs = get_pet_max_needs(pet)
+    for need, max_value in max_needs.items():
+        pet[need] = max_value
+    update_pet_mood(pet)
+    pet["updated_at"] = utc_now().isoformat()
+    users[str(user_id)] = user
+    save_users(users)
+    return True
+
+
+def admin_clear_battle(user_id: int) -> bool:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False
+    user, _ = ensure_pet_defaults(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False
+    if not isinstance(pet.get("battle"), dict):
+        return False
+    pet["battle"] = None
+    pet["updated_at"] = utc_now().isoformat()
+    users[str(user_id)] = user
+    save_users(users)
+    return True
