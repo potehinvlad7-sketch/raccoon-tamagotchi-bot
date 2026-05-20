@@ -509,24 +509,37 @@ def add_exp(pet: dict[str, Any], amount: int) -> int:
     return apply_level_ups(pet)
 
 
-def train_skill(user_id: int, skill_name: str) -> tuple[bool, int, dict[str, Any] | None]:
+def train_skill(user_id: int, skill_name: str) -> tuple[bool, int, dict[str, Any] | None, str | None]:
     if skill_name not in DEFAULT_SKILLS:
-        return False, 0, None
+        return False, 0, None, None
 
     users = load_users()
     user = users.get(str(user_id))
     if not isinstance(user, dict):
-        return False, 0, None
+        return False, 0, None, None
 
     recalculate_needs(user)
     pet = user.get("pet")
     if not isinstance(pet, dict):
-        return False, 0, None
+        return False, 0, None, None
 
     if not has_enough_energy(pet, 15):
         users[str(user_id)] = user
         save_users(users)
-        return False, 0, user
+        return False, 0, user, None
+
+    inventory = pet.get("inventory")
+    if not isinstance(inventory, dict):
+        inventory = DEFAULT_INVENTORY.copy()
+        pet["inventory"] = inventory
+
+    scroll_by_skill = {"strength": "strength_scroll", "agility": "agility_scroll", "instinct": "instinct_scroll"}
+    scroll_key = scroll_by_skill[skill_name]
+    scroll_count = inventory.get(scroll_key, 0)
+    if not isinstance(scroll_count, int) or scroll_count < 1:
+        users[str(user_id)] = user
+        save_users(users)
+        return False, 0, user, scroll_key
 
     skills = pet.get("skills")
     if not isinstance(skills, dict):
@@ -539,12 +552,13 @@ def train_skill(user_id: int, skill_name: str) -> tuple[bool, int, dict[str, Any
 
     skills[skill_name] = skill_value + 1
     pet["energy"] = clamp_need_by_level(pet, "energy", int(pet.get("energy", 0)) - 15)
+    inventory[scroll_key] = scroll_count - 1
     levels_gained = add_exp(pet, 5)
     update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
     save_users(users)
-    return True, levels_gained, user
+    return True, levels_gained, user, scroll_key
 
 
 def get_travel_locations() -> dict[str, dict[str, Any]]:
