@@ -1,7 +1,34 @@
 from aiogram import F, Router
 from aiogram.types import Message
 
-from keyboards import care_menu_keyboard, main_menu_keyboard, shop_menu_keyboard, training_menu_keyboard, travel_menu_keyboard
+from keyboards import (
+    BTN_BACK,
+    BTN_BUY_ENERGY,
+    BTN_BUY_FOOD,
+    BTN_BUY_SOAP,
+    BTN_BUY_TOY,
+    BTN_CARE,
+    BTN_CLEAN,
+    BTN_ENERGY,
+    BTN_FEED,
+    BTN_HELP,
+    BTN_INVENTORY,
+    BTN_MY_RACCOON,
+    BTN_PLAY,
+    BTN_SHOP,
+    BTN_STATUS,
+    BTN_TRAIN_AGILITY,
+    BTN_TRAIN_INSTINCT,
+    BTN_TRAIN_STRENGTH,
+    BTN_TRAINING,
+    BTN_TRAVEL,
+    BTN_TRIP_FOREST,
+    care_menu_keyboard,
+    main_menu_keyboard,
+    shop_menu_keyboard,
+    training_menu_keyboard,
+    travel_menu_keyboard,
+)
 from storage import (
     exp_to_next_level,
     get_runaway_risk,
@@ -15,261 +42,268 @@ from storage import (
     update_pet_need,
 )
 
-
 router = Router()
+
+MOOD_MAP = {"happy": "счастливый", "normal": "обычное", "tired": "уставший", "distressed": "тревожный"}
+RISK_MAP = {"low": "низкий", "medium": "средний", "high": "высокий"}
+TRAVEL_EVENT_MAP = {
+    "raccoon found extra berries": "енот нашёл горсть лесных ягод 🍓",
+    "peaceful walk through the forest": "спокойная прогулка по лесной тропе 🌲",
+    "raccoon got muddy": "енот испачкался в мокрой земле 🐾",
+}
+
+
+
+def format_bar(value: int, maximum: int = 100, length: int = 10) -> str:
+    safe_maximum = maximum if maximum > 0 else 100
+    clamped = max(0, min(value if isinstance(value, int) else 0, safe_maximum))
+    filled = round((clamped / safe_maximum) * length)
+    return f"{'█' * filled}{'░' * (length - filled)} {clamped}/{safe_maximum}"
+
+
+def _localize_mood(mood: str) -> str:
+    return MOOD_MAP.get(mood, mood)
+
+
+def _localize_event(event: str | None) -> str:
+    if not event:
+        return "пока не было"
+    return TRAVEL_EVENT_MAP.get(event.strip().lower(), event)
 
 
 def _status_text(pet: dict) -> str:
-    mood = update_pet_mood(pet)
-    runaway_risk = get_runaway_risk(pet)
-    warning_line = "⚠️ Your raccoon needs more love.\n" if runaway_risk in {"medium", "high"} else ""
-    inventory = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
+    mood = _localize_mood(update_pet_mood(pet))
+    risk = get_runaway_risk(pet)
+    lines = [
+        f"🦝 Енот: {pet.get('name', '-')}",
+        f"😊 Настроение: {mood}",
+        "",
+        "🍽 Сытость",
+        format_bar(pet.get("satiety", 80)),
+        "",
+        "🧼 Чистота",
+        format_bar(pet.get("cleanliness", 80)),
+        "",
+        "💞 Любовь",
+        format_bar(pet.get("love", 80)),
+        "",
+        "⚡ Энергия",
+        format_bar(pet.get("energy", 80)),
+    ]
+    if risk in RISK_MAP:
+        lines.extend(["", f"⚠️ Риск побега: {RISK_MAP[risk]}", "Еноту нужно больше любви."])
+    return "\n".join(lines)
+
+
+def _raccoon_profile_text(pet: dict) -> str:
+    mood = _localize_mood(update_pet_mood(pet))
     skills = pet.get("skills", {}) if isinstance(pet.get("skills"), dict) else {}
-    travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
-    last_event = travel.get("last_event")
-    last_event_line = f"Last travel: {last_event}\n" if isinstance(last_event, str) and last_event else ""
     level = pet.get("level", 1)
     safe_level = level if isinstance(level, int) and level > 0 else 1
     exp = pet.get("exp", 0)
     safe_exp = exp if isinstance(exp, int) and exp >= 0 else 0
-    need_exp = exp_to_next_level(safe_level)
     return (
-        "🐾 Raccoon Status\n"
-        f"Name: {pet.get('name', '-')}\n"
-        f"Gender: {pet.get('gender', '-')}\n"
-        f"Level: {safe_level}\n"
-        f"EXP: {safe_exp} / {need_exp}\n"
-        f"Currency: {pet.get('currency', 0)}\n"
-        f"Mood: {mood}\n"
-        f"Runaway risk: {runaway_risk}\n"
-        f"{warning_line}"
-        f"Satiety: {pet.get('satiety', 80)}/100\n"
-        f"Cleanliness: {pet.get('cleanliness', 80)}/100\n"
-        f"Love: {pet.get('love', 80)}/100\n"
-        f"Energy: {pet.get('energy', 80)}/100\n\n"
-        "💪 Skills\n"
-        f"Strength: {skills.get('strength', 0)}  "
-        f"Agility: {skills.get('agility', 0)}  "
-        f"Instinct: {skills.get('instinct', 0)}\n"
-        f"Travels: {travel.get('total_travels', 0)}\n"
-        f"{last_event_line}\n"
-        "Needs update automatically over elapsed time.\n\n"
-        "🎒 Inventory\n"
-        f"Food: {inventory.get('food', 0)}\n"
-        f"Soap: {inventory.get('soap', 0)}\n"
-        f"Toy: {inventory.get('toy', 0)}\n"
-        f"Energy potion: {inventory.get('energy_potion', 0)}"
+        f"🦝 {pet.get('name', '-')}\n\n"
+        f"📌 Уровень: {safe_level}\n"
+        f"✨ Опыт: {safe_exp} / {exp_to_next_level(safe_level)}\n"
+        f"😊 Настроение: {mood}\n\n"
+        "💪 Навыки:\n"
+        f"• Сила: {skills.get('strength', 0)}\n"
+        f"• Ловкость: {skills.get('agility', 0)}\n"
+        f"• Инстинкт: {skills.get('instinct', 0)}"
     )
 
 
-@router.message(F.text == "Status")
+def _inventory_text(pet: dict) -> str:
+    inventory = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
+    return (
+        "🎒 Инвентарь\n\n"
+        f"🪙 Монеты: {pet.get('currency', 0)}\n\n"
+        f"• 🍎 Еда: {inventory.get('food', 0)}\n"
+        f"• 🧼 Мыло: {inventory.get('soap', 0)}\n"
+        f"• 🎾 Игрушки: {inventory.get('toy', 0)}\n"
+        f"• ⚡ Зелья энергии: {inventory.get('energy_potion', 0)}"
+    )
+
+
+@router.message(F.text == BTN_STATUS)
 async def show_status(message: Message) -> None:
     if message.from_user is None:
         return
-
-    user = get_user(message.from_user.id)
-    user = touch_user_needs(message.from_user.id) or user
+    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
-
     if not isinstance(pet, dict):
-        await message.answer("You do not have a raccoon yet. Send /start to create one.")
+        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-
     await message.answer(_status_text(pet), reply_markup=main_menu_keyboard())
 
 
-@router.message(F.text == "My Raccoon")
+@router.message(F.text == BTN_MY_RACCOON)
 async def show_raccoon(message: Message) -> None:
-    await show_status(message)
+    if message.from_user is None:
+        return
+    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        return
+    await message.answer(_raccoon_profile_text(pet), reply_markup=main_menu_keyboard())
 
 
-@router.message(F.text == "Help")
+@router.message(F.text == BTN_INVENTORY)
+async def show_inventory(message: Message) -> None:
+    if message.from_user is None:
+        return
+    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        return
+    await message.answer(_inventory_text(pet), reply_markup=main_menu_keyboard())
+
+
+@router.message(F.text == BTN_HELP)
 async def show_help(message: Message) -> None:
     await message.answer(
-        "Use /start to create your raccoon.\n"
-        "Use Status to view full pet stats and inventory.\n"
-        "Use Care to feed, clean, play, or restore energy.",
+        "🦝 Это RPG-тамагочи про енота.\n\n"
+        "• Уход поддерживает сытость, чистоту, любовь и энергию.\n"
+        "• Тренировки тратят энергию, дают навыки и опыт.\n"
+        "• Путешествия дают опыт, монеты и случайные события.\n"
+        "• Магазин пополняет припасы.\n"
+        "• Инвентарь показывает монеты и предметы.\n"
+        "• Потребности меняются со временем, когда ты возвращаешься в бота.",
         reply_markup=main_menu_keyboard(),
     )
 
 
-@router.message(F.text == "Care")
+@router.message(F.text == BTN_CARE)
 async def care_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("Choose a care action:", reply_markup=care_menu_keyboard())
+    await message.answer("Выбери действие ухода:", reply_markup=care_menu_keyboard())
 
 
-@router.message(F.text == "Training")
+@router.message(F.text == BTN_TRAINING)
 async def training_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("Choose a training:", reply_markup=training_menu_keyboard())
+    await message.answer("Выбери тренировку:", reply_markup=training_menu_keyboard())
 
 
-@router.message(F.text == "Travel")
+@router.message(F.text == BTN_TRAVEL)
 async def travel_menu(message: Message) -> None:
-    if message.from_user is not None:
-        touch_user_needs(message.from_user.id)
-    await message.answer("Choose travel:", reply_markup=travel_menu_keyboard())
+    if message.from_user is None:
+        return
+    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        return
+    travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
+    await message.answer(
+        "🌲 Путешествия\n\n"
+        f"• Всего прогулок: {travel.get('total_travels', 0)}\n"
+        f"• Последнее событие: {_localize_event(travel.get('last_event'))}\n\n"
+        "Куда отправим енота?",
+        reply_markup=travel_menu_keyboard(),
+    )
 
 
-@router.message(F.text == "Shop")
+@router.message(F.text == BTN_SHOP)
 async def shop_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("Choose an item to buy:", reply_markup=shop_menu_keyboard())
+    await message.answer("Магазин припасов 🛒", reply_markup=shop_menu_keyboard())
 
 
-@router.message(F.text == "Back to main menu")
+@router.message(F.text == BTN_BACK)
 async def back_to_main(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("Main menu:", reply_markup=main_menu_keyboard())
+    await message.answer("Главное меню:", reply_markup=main_menu_keyboard())
 
 
-async def _perform_care_action(
-    message: Message,
-    need: str,
-    amount: int,
-    item: str,
-    action_name: str,
-    missing_message: str,
-) -> None:
+async def _perform_care_action(message: Message, need: str, amount: int, item: str, ok_message: str, missing_message: str) -> None:
     if message.from_user is None:
         return
-
     success = update_pet_need(message.from_user.id, need=need, amount=amount, inventory_item=item)
     if not success:
         await message.answer(missing_message, reply_markup=care_menu_keyboard())
         return
-
-    user = get_user(message.from_user.id)
-    pet = (user or {}).get("pet") if isinstance(user, dict) else None
-    if not isinstance(pet, dict):
-        await message.answer("Action completed.", reply_markup=care_menu_keyboard())
-        return
-
-    await message.answer(
-        f"{action_name} completed!\n\n{_status_text(pet)}",
-        reply_markup=care_menu_keyboard(),
-    )
+    await message.answer(ok_message, reply_markup=care_menu_keyboard())
 
 
-@router.message(F.text == "Feed")
+@router.message(F.text == BTN_FEED)
 async def care_feed(message: Message) -> None:
-    await _perform_care_action(
-        message,
-        need="satiety",
-        amount=20,
-        item="food",
-        action_name="Feeding",
-        missing_message="No food left right now. Let's find some food later!",
-    )
+    await _perform_care_action(message, "satiety", 20, "food", "Енот с удовольствием перекусил 🍎", "Еды нет. Загляни в магазин 🛒")
 
 
-@router.message(F.text == "Clean")
+@router.message(F.text == BTN_CLEAN)
 async def care_clean(message: Message) -> None:
-    await _perform_care_action(
-        message,
-        need="cleanliness",
-        amount=20,
-        item="soap",
-        action_name="Cleaning",
-        missing_message="No soap available now. Time to restock soon!",
-    )
+    await _perform_care_action(message, "cleanliness", 20, "soap", "Енот снова чистый и пушистый 🧼", "Мыла нет. Загляни в магазин 🛒")
 
 
-@router.message(F.text == "Play")
+@router.message(F.text == BTN_PLAY)
 async def care_play(message: Message) -> None:
-    await _perform_care_action(
-        message,
-        need="love",
-        amount=20,
-        item="toy",
-        action_name="Playtime",
-        missing_message="No toy available right now. Your raccoon still loves you!",
-    )
+    await _perform_care_action(message, "love", 20, "toy", "Енот радостно поиграл с тобой 🎾", "Игрушек нет. Загляни в магазин 🛒")
 
 
-@router.message(F.text == "Energy potion")
+@router.message(F.text == BTN_ENERGY)
 async def care_energy(message: Message) -> None:
-    await _perform_care_action(
-        message,
-        need="energy",
-        amount=30,
-        item="energy_potion",
-        action_name="Energy boost",
-        missing_message="No energy potions left. Save one for next time!",
-    )
+    await _perform_care_action(message, "energy", 30, "energy_potion", "Енот выпил зелье и приободрился ⚡", "Зелий энергии нет. Загляни в магазин 🛒")
 
 
-async def _train(message: Message, skill_name: str, label: str) -> None:
+async def _train(message: Message, skill_name: str, success_message: str) -> None:
     if message.from_user is None:
         return
-
     trained, levels_gained, user = train_skill(message.from_user.id, skill_name)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
-        await message.answer("You do not have a raccoon yet. Send /start to create one.")
+        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-
     if not trained:
-        await message.answer(
-            "Your raccoon is too tired for training now. Let it rest a little!",
-            reply_markup=training_menu_keyboard(),
-        )
+        await message.answer("Енот слишком устал для тренировки. Дай ему восстановить энергию ⚡", reply_markup=training_menu_keyboard())
         return
-
-    level_up_line = f"\nLevel up! Your raccoon reached level {pet.get('level', 1)}." if levels_gained > 0 else ""
-    await message.answer(
-        f"{label} training completed! (+1 {label}, +5 EXP, -15 energy){level_up_line}\n\n{_status_text(pet)}",
-        reply_markup=training_menu_keyboard(),
-    )
+    level_up_line = f"\nНовый уровень! Енот достиг уровня {pet.get('level', 1)} ✨" if levels_gained > 0 else ""
+    await message.answer(f"{success_message}{level_up_line}", reply_markup=training_menu_keyboard())
 
 
-@router.message(F.text == "Train Strength")
+@router.message(F.text == BTN_TRAIN_STRENGTH)
 async def train_strength(message: Message) -> None:
-    await _train(message, "strength", "Strength")
+    await _train(message, "strength", "Тренировка силы завершена 💪")
 
 
-@router.message(F.text == "Train Agility")
+@router.message(F.text == BTN_TRAIN_AGILITY)
 async def train_agility(message: Message) -> None:
-    await _train(message, "agility", "Agility")
+    await _train(message, "agility", "Тренировка ловкости завершена 💨")
 
 
-@router.message(F.text == "Train Instinct")
+@router.message(F.text == BTN_TRAIN_INSTINCT)
 async def train_instinct(message: Message) -> None:
-    await _train(message, "instinct", "Instinct")
+    await _train(message, "instinct", "Тренировка инстинкта завершена 🌙")
 
 
-@router.message(F.text == "Short Forest Trip")
+@router.message(F.text == BTN_TRIP_FOREST)
 async def short_forest_trip(message: Message) -> None:
     if message.from_user is None:
         return
-
     success, levels_gained, missing, user = perform_short_forest_trip(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
-        await message.answer("You do not have a raccoon yet. Send /start to create one.")
+        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-
     if not success:
-        await message.answer(
-            "Your raccoon is not ready for travel yet.\nNeeded: " + ", ".join(missing),
-            reply_markup=travel_menu_keyboard(),
-        )
+        req_map = {"energy": "энергия (минимум 30)", "satiety": "сытость (минимум 30)", "cleanliness": "чистота (минимум 20)"}
+        req_lines = "\n".join(f"• {req_map.get(item, item)}" for item in missing)
+        await message.answer(f"Енот пока не готов к путешествию:\n{req_lines}", reply_markup=travel_menu_keyboard())
         return
-
-    last_event = pet.get("travel", {}).get("last_event", "Travel completed!")
-    level_up_line = f"\nLevel up! Your raccoon reached level {pet.get('level', 1)}." if levels_gained > 0 else ""
+    level_up_line = f"\nНовый уровень! Енот достиг уровня {pet.get('level', 1)} ✨" if levels_gained > 0 else ""
+    event = _localize_event(pet.get("travel", {}).get("last_event"))
     await message.answer(
-        "Short forest trip completed!\n"
-        "Costs: -20 energy, -10 satiety, -5 cleanliness\n"
-        "Rewards: +10 EXP, +5 currency\n"
-        f"{level_up_line}\n"
-        f"Event: {last_event}\n\n"
-        f"{_status_text(pet)}",
+        "Прогулка завершена 🌲\n"
+        "Потрачено: энергия -20, сытость -10, чистота -5\n"
+        "Награда: опыт +10, монеты +5\n"
+        f"Событие: {event}{level_up_line}",
         reply_markup=travel_menu_keyboard(),
     )
 
@@ -277,46 +311,39 @@ async def short_forest_trip(message: Message) -> None:
 async def _buy_item_action(message: Message, item_key: str, item_label: str) -> None:
     if message.from_user is None:
         return
-
     prices = get_shop_items()
     price = prices.get(item_key, 0)
-    success, _, balance, count, user = shop_purchase(message.from_user.id, item_key)
-
+    success, _, balance, count, _ = shop_purchase(message.from_user.id, item_key)
     if not success:
         await message.answer(
-            f"Not enough currency for {item_label}. Price: {price}. Your balance: {balance}.",
+            f"Не хватает монет.\nЦена: {price}\nТвой баланс: {balance}",
             reply_markup=shop_menu_keyboard(),
         )
         return
-
-    pet = (user or {}).get("pet") if isinstance(user, dict) else None
-    if not isinstance(pet, dict):
-        await message.answer("Purchase completed.", reply_markup=shop_menu_keyboard())
-        return
-
     await message.answer(
-        f"Bought {item_label} for {price} currency!\n"
-        f"Balance: {balance}\n"
-        f"{item_label} in inventory: {count}",
+        "Покупка успешна!\n"
+        f"Предмет: {item_label}\n"
+        f"Монет осталось: {balance}\n"
+        f"Теперь в инвентаре: {count}",
         reply_markup=shop_menu_keyboard(),
     )
 
 
-@router.message(F.text == "Buy Food")
+@router.message(F.text == BTN_BUY_FOOD)
 async def buy_food(message: Message) -> None:
-    await _buy_item_action(message, "food", "Food")
+    await _buy_item_action(message, "food", "Еда")
 
 
-@router.message(F.text == "Buy Soap")
+@router.message(F.text == BTN_BUY_SOAP)
 async def buy_soap(message: Message) -> None:
-    await _buy_item_action(message, "soap", "Soap")
+    await _buy_item_action(message, "soap", "Мыло")
 
 
-@router.message(F.text == "Buy Toy")
+@router.message(F.text == BTN_BUY_TOY)
 async def buy_toy(message: Message) -> None:
-    await _buy_item_action(message, "toy", "Toy")
+    await _buy_item_action(message, "toy", "Игрушка")
 
 
-@router.message(F.text == "Buy Energy Potion")
+@router.message(F.text == BTN_BUY_ENERGY)
 async def buy_energy_potion(message: Message) -> None:
-    await _buy_item_action(message, "energy_potion", "Energy potion")
+    await _buy_item_action(message, "energy_potion", "Зелье энергии")
