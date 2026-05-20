@@ -1,4 +1,5 @@
 import json
+import random
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,10 @@ DEFAULT_SKILLS = {
     "strength": 0,
     "agility": 0,
     "instinct": 0,
+}
+DEFAULT_TRAVEL = {
+    "total_travels": 0,
+    "last_event": None,
 }
 NEEDS_TICK_MINUTES = 30
 
@@ -84,6 +89,18 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
             if not isinstance(skills.get(skill), int):
                 skills[skill] = default
                 changed = True
+
+    travel = pet.get("travel")
+    if not isinstance(travel, dict):
+        pet["travel"] = DEFAULT_TRAVEL.copy()
+        changed = True
+    else:
+        if not isinstance(travel.get("total_travels"), int):
+            travel["total_travels"] = DEFAULT_TRAVEL["total_travels"]
+            changed = True
+        if not (isinstance(travel.get("last_event"), str) or travel.get("last_event") is None):
+            travel["last_event"] = DEFAULT_TRAVEL["last_event"]
+            changed = True
 
     updated_at = parse_datetime(pet.get("updated_at"))
     if updated_at is None:
@@ -203,6 +220,7 @@ def create_pet(user_id: int, name: str, gender: str) -> dict[str, Any]:
             "energy": DEFAULT_NEEDS["energy"],
             "skills": DEFAULT_SKILLS.copy(),
             "inventory": DEFAULT_INVENTORY.copy(),
+            "travel": DEFAULT_TRAVEL.copy(),
             "created_at": now,
             "updated_at": now,
             "last_needs_update_at": now,
@@ -294,3 +312,92 @@ def train_skill(user_id: int, skill_name: str) -> tuple[bool, dict[str, Any] | N
     users[str(user_id)] = user
     save_users(users)
     return True, user
+
+
+def can_travel(pet: dict[str, Any]) -> tuple[bool, list[str]]:
+    missing: list[str] = []
+    energy = pet.get("energy", 0)
+    satiety = pet.get("satiety", 0)
+    cleanliness = pet.get("cleanliness", 0)
+
+    if not isinstance(energy, int) or energy < 20:
+        missing.append("energy >= 20")
+    if not isinstance(satiety, int) or satiety < 20:
+        missing.append("satiety >= 20")
+    if not isinstance(cleanliness, int) or cleanliness < 15:
+        missing.append("cleanliness >= 15")
+    return len(missing) == 0, missing
+
+
+def choose_travel_event(pet: dict[str, Any]) -> str:
+    skills = pet.get("skills")
+    instinct = skills.get("instinct", 0) if isinstance(skills, dict) else 0
+    if isinstance(instinct, int) and instinct >= 3:
+        weights = [35, 55, 10]
+    else:
+        weights = [30, 50, 20]
+    return random.choices(["good", "neutral", "bad"], weights=weights, k=1)[0]
+
+
+def apply_travel_event(pet: dict[str, Any], event_type: str) -> str:
+    inventory = pet.get("inventory")
+    if not isinstance(inventory, dict):
+        pet["inventory"] = DEFAULT_INVENTORY.copy()
+        inventory = pet["inventory"]
+
+    if event_type == "good":
+        food = inventory.get("food", 0)
+        inventory["food"] = (food if isinstance(food, int) else 0) + 1
+        currency = pet.get("currency", 0)
+        pet["currency"] = (currency if isinstance(currency, int) else 0) + 3
+        return "Raccoon found extra berries."
+    if event_type == "bad":
+        pet["cleanliness"] = clamp_need(int(pet.get("cleanliness", 0)) - 10)
+        return "Raccoon got muddy."
+    return "Peaceful walk through the forest."
+
+
+def perform_short_forest_trip(user_id: int) -> tuple[bool, list[str], dict[str, Any] | None]:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False, ["pet is missing"], None
+
+    recalculate_needs(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False, ["pet is missing"], None
+
+    allowed, missing = can_travel(pet)
+    if not allowed:
+        users[str(user_id)] = user
+        save_users(users)
+        return False, missing, user
+
+    pet["energy"] = clamp_need(int(pet.get("energy", 0)) - 20)
+    pet["satiety"] = clamp_need(int(pet.get("satiety", 0)) - 10)
+    pet["cleanliness"] = clamp_need(int(pet.get("cleanliness", 0)) - 5)
+    pet["exp"] = int(pet.get("exp", 0)) + 10 if isinstance(pet.get("exp"), int) else 10
+    pet["currency"] = int(pet.get("currency", 0)) + 5 if isinstance(pet.get("currency"), int) else 5
+
+    travel = pet.get("travel")
+    if not isinstance(travel, dict):
+        pet["travel"] = DEFAULT_TRAVEL.copy()
+        travel = pet["travel"]
+
+    travels = travel.get("total_travels", 0)
+    travel["total_travels"] = (travels if isinstance(travels, int) else 0) + 1
+
+    event_type = choose_travel_event(pet)
+    event_text = apply_travel_event(pet, event_type)
+    travel["last_event"] = event_text
+
+    pet["cleanliness"] = clamp_need(int(pet.get("cleanliness", 0)))
+    pet["satiety"] = clamp_need(int(pet.get("satiety", 0)))
+    pet["energy"] = clamp_need(int(pet.get("energy", 0)))
+    pet["love"] = clamp_need(int(pet.get("love", 0)))
+    pet["updated_at"] = utc_now().isoformat()
+
+    users[str(user_id)] = user
+    save_users(users)
+    return True, [], user

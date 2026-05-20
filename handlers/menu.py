@@ -1,8 +1,8 @@
 from aiogram import F, Router
 from aiogram.types import Message
 
-from keyboards import care_menu_keyboard, main_menu_keyboard, training_menu_keyboard
-from storage import get_user, touch_user_needs, train_skill, update_pet_need
+from keyboards import care_menu_keyboard, main_menu_keyboard, training_menu_keyboard, travel_menu_keyboard
+from storage import get_user, perform_short_forest_trip, touch_user_needs, train_skill, update_pet_need
 
 
 router = Router()
@@ -11,6 +11,9 @@ router = Router()
 def _status_text(pet: dict) -> str:
     inventory = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
     skills = pet.get("skills", {}) if isinstance(pet.get("skills"), dict) else {}
+    travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
+    last_event = travel.get("last_event")
+    last_event_line = f"Last travel: {last_event}\n" if isinstance(last_event, str) and last_event else ""
     return (
         "🐾 Raccoon Status\n"
         f"Name: {pet.get('name', '-')}\n"
@@ -26,7 +29,9 @@ def _status_text(pet: dict) -> str:
         "💪 Skills\n"
         f"Strength: {skills.get('strength', 0)}  "
         f"Agility: {skills.get('agility', 0)}  "
-        f"Instinct: {skills.get('instinct', 0)}\n\n"
+        f"Instinct: {skills.get('instinct', 0)}\n"
+        f"Travels: {travel.get('total_travels', 0)}\n"
+        f"{last_event_line}\n"
         "Needs update automatically over elapsed time.\n\n"
         "🎒 Inventory\n"
         f"Food: {inventory.get('food', 0)}\n"
@@ -79,6 +84,13 @@ async def training_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
     await message.answer("Choose a training:", reply_markup=training_menu_keyboard())
+
+
+@router.message(F.text == "Travel")
+async def travel_menu(message: Message) -> None:
+    if message.from_user is not None:
+        touch_user_needs(message.from_user.id)
+    await message.answer("Choose travel:", reply_markup=travel_menu_keyboard())
 
 
 @router.message(F.text == "Back to main menu")
@@ -200,3 +212,32 @@ async def train_agility(message: Message) -> None:
 @router.message(F.text == "Train Instinct")
 async def train_instinct(message: Message) -> None:
     await _train(message, "instinct", "Instinct")
+
+
+@router.message(F.text == "Short Forest Trip")
+async def short_forest_trip(message: Message) -> None:
+    if message.from_user is None:
+        return
+
+    success, missing, user = perform_short_forest_trip(message.from_user.id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("You do not have a raccoon yet. Send /start to create one.")
+        return
+
+    if not success:
+        await message.answer(
+            "Your raccoon is not ready for travel yet.\nNeeded: " + ", ".join(missing),
+            reply_markup=travel_menu_keyboard(),
+        )
+        return
+
+    last_event = pet.get("travel", {}).get("last_event", "Travel completed!")
+    await message.answer(
+        "Short forest trip completed!\n"
+        "Costs: -20 energy, -10 satiety, -5 cleanliness\n"
+        "Rewards: +10 EXP, +5 currency\n"
+        f"Event: {last_event}\n\n"
+        f"{_status_text(pet)}",
+        reply_markup=travel_menu_keyboard(),
+    )

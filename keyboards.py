@@ -14,8 +14,18 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="Status"), KeyboardButton(text="Care")],
-            [KeyboardButton(text="Training"), KeyboardButton(text="My Raccoon")],
-            [KeyboardButton(text="Help")],
+            [KeyboardButton(text="Training"), KeyboardButton(text="Travel")],
+            [KeyboardButton(text="My Raccoon"), KeyboardButton(text="Help")],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def travel_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Short Forest Trip")],
+            [KeyboardButton(text="Back to main menu")],
         ],
         resize_keyboard=True,
     )
