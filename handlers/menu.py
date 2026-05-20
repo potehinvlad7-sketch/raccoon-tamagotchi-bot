@@ -3,18 +3,32 @@ from aiogram.types import Message
 
 from keyboards import (
     BTN_BACK,
+    BTN_BUY_BIG_ENERGY,
+    BTN_BUY_COMB,
     BTN_BUY_ENERGY,
     BTN_BUY_FOOD,
+    BTN_BUY_FOREST_HONEY,
+    BTN_BUY_FUN_TOY,
+    BTN_BUY_HEARTY_SNACK,
+    BTN_BUY_SHAMPOO,
     BTN_BUY_SOAP,
     BTN_BUY_TOY,
+    BTN_BUY_YARN_BALL,
     BTN_CARE,
-    BTN_CLEAN,
-    BTN_ENERGY,
-    BTN_FEED,
+    BTN_CARE_APPLE,
+    BTN_CARE_BALL,
+    BTN_CARE_BIG_ENERGY,
+    BTN_CARE_COMB,
+    BTN_CARE_FOREST_HONEY,
+    BTN_CARE_FUN_TOY,
+    BTN_CARE_HEARTY_SNACK,
+    BTN_CARE_SHAMPOO,
+    BTN_CARE_SMALL_ENERGY,
+    BTN_CARE_SOAP,
+    BTN_CARE_YARN_BALL,
     BTN_HELP,
     BTN_INVENTORY,
     BTN_MY_RACCOON,
-    BTN_PLAY,
     BTN_SHOP,
     BTN_STATUS,
     BTN_TRAIN_AGILITY,
@@ -33,6 +47,7 @@ from storage import (
     exp_to_next_level,
     get_pet_max_needs,
     get_runaway_risk,
+    get_item_catalog,
     get_shop_items,
     get_user,
     perform_short_forest_trip,
@@ -123,12 +138,22 @@ def _inventory_text(pet: dict) -> str:
     return (
         "🎒 Инвентарь\n\n"
         f"🪙 Монеты: {pet.get('currency', 0)}\n\n"
-        f"• 🍎 Еда: {inventory.get('food', 0)}\n"
+        "🍽 Еда:\n"
+        f"• 🍎 Яблоки: {inventory.get('food', 0)}\n"
+        f"• 🥪 Сытные перекусы: {inventory.get('hearty_snack', 0)}\n"
+        f"• 🍯 Лесной мёд: {inventory.get('forest_honey', 0)}\n\n"
+        "🧼 Чистота:\n"
         f"• 🧼 Мыло: {inventory.get('soap', 0)}\n"
-        f"• 🎾 Игрушки: {inventory.get('toy', 0)}\n"
-        f"• ⚡ Зелья энергии: {inventory.get('energy_potion', 0)}"
+        f"• 🫧 Шампунь: {inventory.get('fluffy_shampoo', 0)}\n"
+        f"• 🪮 Гребень: {inventory.get('comb', 0)}\n\n"
+        "💞 Забота:\n"
+        f"• 🎾 Мячики: {inventory.get('toy', 0)}\n"
+        f"• 🧶 Клубки: {inventory.get('yarn_ball', 0)}\n"
+        f"• 🪀 Игрушки: {inventory.get('fun_toy', 0)}\n\n"
+        "⚡ Энергия:\n"
+        f"• ⚡ Малые зелья: {inventory.get('energy_potion', 0)}\n"
+        f"• 🔋 Большие зелья: {inventory.get('big_energy_potion', 0)}"
     )
-
 
 @router.message(F.text == BTN_STATUS)
 async def show_status(message: Message) -> None:
@@ -227,49 +252,79 @@ async def back_to_main(message: Message) -> None:
     await message.answer("Главное меню:", reply_markup=main_menu_keyboard())
 
 
-async def _perform_care_action(message: Message, need: str, amount: int, item: str, ok_message: str, missing_message: str) -> None:
+async def _perform_care_action(message: Message, item_key: str) -> None:
     if message.from_user is None:
         return
-    success = update_pet_need(message.from_user.id, need=need, amount=amount, inventory_item=item)
+    catalog = get_item_catalog()
+    item = catalog.get(item_key, {})
+    success, _ = update_pet_need(message.from_user.id, inventory_item=item_key)
     if not success:
-        await message.answer(missing_message, reply_markup=care_menu_keyboard())
+        await message.answer("Такого предмета нет в инвентаре. Загляни в магазин 🛒", reply_markup=care_menu_keyboard())
         return
-    await message.answer(ok_message, reply_markup=care_menu_keyboard())
+    await message.answer(
+        f"Енот использовал {item.get('name', 'предмет').lower()} {item.get('emoji', '')}\n"
+        f"{_need_label(item.get('need', ''))} +{item.get('restore', 0)}.",
+        reply_markup=care_menu_keyboard(),
+    )
 
 
-@router.message(F.text == BTN_FEED)
-async def care_feed(message: Message) -> None:
-    await _perform_care_action(message, "satiety", 50, "food", "Енот с удовольствием перекусил 🍎", "Еды нет. Загляни в магазин 🛒")
+def _need_label(need: str) -> str:
+    return {"satiety": "Сытость", "cleanliness": "Чистота", "love": "Любовь", "energy": "Энергия"}.get(need, "Параметр")
 
 
-@router.message(F.text == BTN_CLEAN)
-async def care_clean(message: Message) -> None:
-    await _perform_care_action(message, "cleanliness", 50, "soap", "Енот снова чистый и пушистый 🧼", "Мыла нет. Загляни в магазин 🛒")
+@router.message(F.text == BTN_CARE_APPLE)
+async def care_apple(message: Message) -> None:
+    await _perform_care_action(message, "food")
 
 
-@router.message(F.text == BTN_PLAY)
-async def care_play(message: Message) -> None:
-    await _perform_care_action(message, "love", 50, "toy", "Енот радостно поиграл с тобой 🎾", "Игрушек нет. Загляни в магазин 🛒")
+@router.message(F.text == BTN_CARE_HEARTY_SNACK)
+async def care_hearty_snack(message: Message) -> None:
+    await _perform_care_action(message, "hearty_snack")
 
 
-@router.message(F.text == BTN_ENERGY)
-async def care_energy(message: Message) -> None:
-    await _perform_care_action(message, "energy", 50, "energy_potion", "Енот выпил зелье и приободрился ⚡", "Зелий энергии нет. Загляни в магазин 🛒")
+@router.message(F.text == BTN_CARE_FOREST_HONEY)
+async def care_forest_honey(message: Message) -> None:
+    await _perform_care_action(message, "forest_honey")
 
 
-async def _train(message: Message, skill_name: str, success_message: str) -> None:
-    if message.from_user is None:
-        return
-    trained, levels_gained, user = train_skill(message.from_user.id, skill_name)
-    pet = (user or {}).get("pet") if isinstance(user, dict) else None
-    if not isinstance(pet, dict):
-        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
-        return
-    if not trained:
-        await message.answer("Енот слишком устал для тренировки. Дай ему восстановить энергию ⚡", reply_markup=training_menu_keyboard())
-        return
-    level_up_line = f"\nНовый уровень! Енот достиг уровня {pet.get('level', 1)} ✨" if levels_gained > 0 else ""
-    await message.answer(f"{success_message}{level_up_line}", reply_markup=training_menu_keyboard())
+@router.message(F.text == BTN_CARE_SOAP)
+async def care_soap(message: Message) -> None:
+    await _perform_care_action(message, "soap")
+
+
+@router.message(F.text == BTN_CARE_SHAMPOO)
+async def care_shampoo(message: Message) -> None:
+    await _perform_care_action(message, "fluffy_shampoo")
+
+
+@router.message(F.text == BTN_CARE_COMB)
+async def care_comb(message: Message) -> None:
+    await _perform_care_action(message, "comb")
+
+
+@router.message(F.text == BTN_CARE_BALL)
+async def care_ball(message: Message) -> None:
+    await _perform_care_action(message, "toy")
+
+
+@router.message(F.text == BTN_CARE_YARN_BALL)
+async def care_yarn_ball(message: Message) -> None:
+    await _perform_care_action(message, "yarn_ball")
+
+
+@router.message(F.text == BTN_CARE_FUN_TOY)
+async def care_fun_toy(message: Message) -> None:
+    await _perform_care_action(message, "fun_toy")
+
+
+@router.message(F.text == BTN_CARE_SMALL_ENERGY)
+async def care_small_energy(message: Message) -> None:
+    await _perform_care_action(message, "energy_potion")
+
+
+@router.message(F.text == BTN_CARE_BIG_ENERGY)
+async def care_big_energy(message: Message) -> None:
+    await _perform_care_action(message, "big_energy_potion")
 
 
 @router.message(F.text == BTN_TRAIN_STRENGTH)
@@ -335,7 +390,17 @@ async def _buy_item_action(message: Message, item_key: str, item_label: str) -> 
 
 @router.message(F.text == BTN_BUY_FOOD)
 async def buy_food(message: Message) -> None:
-    await _buy_item_action(message, "food", "Еда")
+    await _buy_item_action(message, "food", "Яблоко")
+
+
+@router.message(F.text == BTN_BUY_HEARTY_SNACK)
+async def buy_hearty_snack(message: Message) -> None:
+    await _buy_item_action(message, "hearty_snack", "Сытный перекус")
+
+
+@router.message(F.text == BTN_BUY_FOREST_HONEY)
+async def buy_forest_honey(message: Message) -> None:
+    await _buy_item_action(message, "forest_honey", "Лесной мёд")
 
 
 @router.message(F.text == BTN_BUY_SOAP)
@@ -343,11 +408,36 @@ async def buy_soap(message: Message) -> None:
     await _buy_item_action(message, "soap", "Мыло")
 
 
+@router.message(F.text == BTN_BUY_SHAMPOO)
+async def buy_shampoo(message: Message) -> None:
+    await _buy_item_action(message, "fluffy_shampoo", "Шампунь")
+
+
+@router.message(F.text == BTN_BUY_COMB)
+async def buy_comb(message: Message) -> None:
+    await _buy_item_action(message, "comb", "Гребень")
+
+
 @router.message(F.text == BTN_BUY_TOY)
 async def buy_toy(message: Message) -> None:
-    await _buy_item_action(message, "toy", "Игрушка")
+    await _buy_item_action(message, "toy", "Мячик")
+
+
+@router.message(F.text == BTN_BUY_YARN_BALL)
+async def buy_yarn_ball(message: Message) -> None:
+    await _buy_item_action(message, "yarn_ball", "Клубок")
+
+
+@router.message(F.text == BTN_BUY_FUN_TOY)
+async def buy_fun_toy(message: Message) -> None:
+    await _buy_item_action(message, "fun_toy", "Игрушка")
 
 
 @router.message(F.text == BTN_BUY_ENERGY)
 async def buy_energy_potion(message: Message) -> None:
-    await _buy_item_action(message, "energy_potion", "Зелье энергии")
+    await _buy_item_action(message, "energy_potion", "Малое зелье")
+
+
+@router.message(F.text == BTN_BUY_BIG_ENERGY)
+async def buy_big_energy_potion(message: Message) -> None:
+    await _buy_item_action(message, "big_energy_potion", "Большое зелье")
