@@ -20,6 +20,13 @@ DEFAULT_INVENTORY = {
     "soap": 2,
     "toy": 2,
     "energy_potion": 1,
+    "hearty_snack": 0,
+    "forest_honey": 0,
+    "fluffy_shampoo": 0,
+    "comb": 0,
+    "yarn_ball": 0,
+    "fun_toy": 0,
+    "big_energy_potion": 0,
 }
 DEFAULT_SKILLS = {
     "strength": 0,
@@ -31,11 +38,18 @@ DEFAULT_TRAVEL = {
     "last_event": None,
 }
 NEEDS_TICK_MINUTES = 30
-SHOP_PRICES = {
-    "food": 5,
-    "soap": 7,
-    "toy": 8,
-    "energy_potion": 12,
+ITEM_CATALOG = {
+    "food": {"name": "Яблоко", "emoji": "🍎", "category": "food", "need": "satiety", "restore": 50, "price": 5},
+    "hearty_snack": {"name": "Сытный перекус", "emoji": "🥪", "category": "food", "need": "satiety", "restore": 90, "price": 12},
+    "forest_honey": {"name": "Лесной мёд", "emoji": "🍯", "category": "food", "need": "satiety", "restore": 140, "price": 22},
+    "soap": {"name": "Мыло", "emoji": "🧼", "category": "cleanliness", "need": "cleanliness", "restore": 50, "price": 7},
+    "fluffy_shampoo": {"name": "Пушистый шампунь", "emoji": "🫧", "category": "cleanliness", "need": "cleanliness", "restore": 90, "price": 14},
+    "comb": {"name": "Гребень", "emoji": "🪮", "category": "cleanliness", "need": "cleanliness", "restore": 35, "price": 4},
+    "toy": {"name": "Мячик", "emoji": "🎾", "category": "love", "need": "love", "restore": 50, "price": 8},
+    "yarn_ball": {"name": "Клубок", "emoji": "🧶", "category": "love", "need": "love", "restore": 80, "price": 14},
+    "fun_toy": {"name": "Забавная игрушка", "emoji": "🪀", "category": "love", "need": "love", "restore": 120, "price": 24},
+    "energy_potion": {"name": "Малое зелье энергии", "emoji": "⚡", "category": "energy", "need": "energy", "restore": 50, "price": 12},
+    "big_energy_potion": {"name": "Большое зелье энергии", "emoji": "🔋", "category": "energy", "need": "energy", "restore": 100, "price": 25},
 }
 
 
@@ -320,8 +334,12 @@ def consume_inventory_item(pet: dict[str, Any], item: str) -> bool:
     return True
 
 
+def get_item_catalog() -> dict[str, dict[str, Any]]:
+    return {key: value.copy() for key, value in ITEM_CATALOG.items()}
+
+
 def get_shop_items() -> dict[str, int]:
-    return SHOP_PRICES.copy()
+    return {key: item["price"] for key, item in ITEM_CATALOG.items()}
 
 
 def can_afford(currency: int, price: int) -> bool:
@@ -347,7 +365,7 @@ def buy_item(user_data: dict[str, Any], item_key: str) -> tuple[bool, int, int]:
     if not isinstance(pet, dict):
         return False, 0, 0
 
-    price = SHOP_PRICES.get(item_key)
+    price = ITEM_CATALOG.get(item_key, {}).get("price")
     if not isinstance(price, int):
         return False, 0, 0
 
@@ -380,33 +398,43 @@ def shop_purchase(user_id: int, item_key: str) -> tuple[bool, int, int, int, dic
     return success, price, balance, count, user
 
 
-def update_pet_need(user_id: int, need: str, amount: int, inventory_item: str) -> bool:
+def update_pet_need(user_id: int, need: str | None = None, amount: int | None = None, inventory_item: str = "") -> tuple[bool, dict[str, Any] | None]:
     users = load_users()
     user = users.get(str(user_id))
     if not isinstance(user, dict):
-        return False
+        return False, None
 
     changed = recalculate_needs(user)
     pet = user.get("pet")
     if not isinstance(pet, dict):
-        return False
+        return False, None
+
+    item_data = ITEM_CATALOG.get(inventory_item)
+    resolved_need = item_data.get("need") if isinstance(item_data, dict) else need
+    resolved_amount = item_data.get("restore") if isinstance(item_data, dict) else amount
+
+    if not isinstance(resolved_need, str) or not isinstance(resolved_amount, int):
+        if changed:
+            users[str(user_id)] = user
+            save_users(users)
+        return False, None
 
     if not consume_inventory_item(pet, inventory_item):
         if changed:
             users[str(user_id)] = user
             save_users(users)
-        return False
+        return False, user
 
-    current_value = pet.get(need, 0)
+    current_value = pet.get(resolved_need, 0)
     if not isinstance(current_value, int):
         current_value = 0
 
-    pet[need] = clamp_need_by_level(pet, need, current_value + amount)
+    pet[resolved_need] = clamp_need_by_level(pet, resolved_need, current_value + resolved_amount)
     update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
     save_users(users)
-    return True
+    return True, user
 
 
 def has_enough_energy(pet: dict[str, Any], amount: int) -> bool:
