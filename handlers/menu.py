@@ -71,6 +71,12 @@ TRAVEL_EVENT_MAP = {
 }
 
 TRAVEL_BUTTON_TO_ID = {value["button"]: key for key, value in TRAVEL_LOCATIONS.items()}
+SKILL_LABELS = {"strength": "💪 Сила", "agility": "💨 Ловкость", "instinct": "🌙 Инстинкт"}
+SCROLL_LABELS = {
+    "strength_scroll": "📜 Свиток силы",
+    "agility_scroll": "📜 Свиток ловкости",
+    "instinct_scroll": "📜 Свиток инстинкта",
+}
 
 
 def _resolve_travel_location_id(button_text: str | None) -> str | None:
@@ -225,7 +231,7 @@ async def show_help(message: Message) -> None:
     await message.answer(
         "🦝 Это RPG-тамагочи про енота.\n\n"
         "• Уход поддерживает сытость, чистоту, любовь и энергию.\n"
-        "• Тренировки тратят энергию, дают навыки и опыт.\n"
+        "• Тренировки тратят энергию и свитки, дают навыки и опыт.\n"
         "• Путешествия дают опыт, монеты и случайные события.\n"
         "• Магазин пополняет припасы.\n"
         "• Инвентарь показывает монеты и предметы.\n"
@@ -245,7 +251,45 @@ async def care_menu(message: Message) -> None:
 async def training_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("Выбери тренировку:", reply_markup=training_menu_keyboard())
+    await message.answer(
+        "💪 Тренировки\n\n"
+        "Для тренировки нужен подходящий свиток, который редко находится в путешествиях.\n\n"
+        "• Сила — 📜 Свиток силы\n"
+        "• Ловкость — 📜 Свиток ловкости\n"
+        "• Инстинкт — 📜 Свиток инстинкта",
+        reply_markup=training_menu_keyboard(),
+    )
+
+
+async def _train(message: Message, skill: str, title: str) -> None:
+    if message.from_user is None:
+        return
+    success, levels_gained, user, scroll_key = train_skill(message.from_user.id, skill)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not success:
+        if isinstance(pet, dict) and not scroll_key:
+            await message.answer("Енот слишком устал. Нужна энергия ⚡", reply_markup=training_menu_keyboard())
+            return
+        scroll_label = SCROLL_LABELS.get(scroll_key or "", "подходящий свиток")
+        await message.answer(
+            f"Нужен {scroll_label}. Его можно редко найти в путешествиях.",
+            reply_markup=training_menu_keyboard(),
+        )
+        return
+
+    level_up_line = f"\n\n✨ Новый уровень! Енот достиг уровня {pet.get('level', 1)}." if levels_gained > 0 and isinstance(pet, dict) else ""
+    await message.answer(
+        f"{title}\n\n"
+        "Енот развернул свиток и тренировался до хруста веток.\n\n"
+        "Потрачено:\n"
+        "• ⚡ Энергия: -15\n"
+        f"• {SCROLL_LABELS.get(scroll_key or '', '📜 Свиток')}: -1\n\n"
+        "Результат:\n"
+        f"• {SKILL_LABELS.get(skill, 'Навык')}: +1\n"
+        "• ✨ Опыт: +5"
+        f"{level_up_line}",
+        reply_markup=training_menu_keyboard(),
+    )
 
 
 @router.message(F.text == BTN_TRAVEL)
