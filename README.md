@@ -39,3 +39,11 @@ Telegram RPG tamagotchi bot where users create a raccoon pet, care for it, train
 - No database is used yet.
 - No background loop is used for needs recalculation.
 - `PROXY_URL` is read from environment and used only when present.
+
+
+## Admin
+
+- Optional env: `ADMIN_IDS=123456789,987654321`
+- `/admin` — admin panel
+- `/admin_stats` — JSON storage stats
+- `/backup` — create JSON backup in `data/backups/`
