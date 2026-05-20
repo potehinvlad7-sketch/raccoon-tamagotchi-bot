@@ -40,6 +40,7 @@ DEFAULT_TRAVEL = {
     "total_travels": 0,
     "last_event": None,
 }
+DEFAULT_BATTLE = None
 NEEDS_TICK_MINUTES = 30
 
 TRAVEL_LOCATIONS = {
@@ -245,6 +246,9 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
         if not (isinstance(travel.get("last_event"), str) or travel.get("last_event") is None):
             travel["last_event"] = DEFAULT_TRAVEL["last_event"]
             changed = True
+    if "battle" not in pet:
+        pet["battle"] = DEFAULT_BATTLE
+        changed = True
 
     updated_at = parse_datetime(pet.get("updated_at"))
     if updated_at is None:
@@ -622,11 +626,11 @@ def calculate_enemy_win_chance(pet: dict[str, Any], enemy: dict[str, Any]) -> in
 def choose_travel_event(pet: dict[str, Any], location_id: str) -> dict[str, Any]:
     skills = pet.get("skills")
     instinct = skills.get("instinct", 0) if isinstance(skills, dict) else 0
-    weights = {"good": 30, "neutral": 35, "bad": 18, "rare": 5, "enemy": 12}
+    weights = {"good": 24, "neutral": 28, "bad": 14, "rare": 4, "enemy": 30}
     if isinstance(instinct, int) and instinct >= 7:
-        weights = {"good": 37, "neutral": 37, "bad": 10, "rare": 8, "enemy": 8}
+        weights = {"good": 30, "neutral": 33, "bad": 12, "rare": 5, "enemy": 20}
     elif isinstance(instinct, int) and instinct >= 3:
-        weights = {"good": 34, "neutral": 36, "bad": 14, "rare": 6, "enemy": 10}
+        weights = {"good": 27, "neutral": 31, "bad": 13, "rare": 4, "enemy": 25}
 
     event_types = list(weights.keys())
     chosen_type = random.choices(event_types, weights=[weights[t] for t in event_types], k=1)[0]
@@ -659,6 +663,8 @@ def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str]
     pet = user.get("pet")
     if not isinstance(pet, dict):
         return False, 0, ["pet is missing"], None, None, None, None
+    if isinstance(pet.get("battle"), dict):
+        return False, 0, ["battle_pending"], user, None, None, None
 
     location = TRAVEL_LOCATIONS.get(location_id)
     if not isinstance(location, dict):
@@ -718,35 +724,15 @@ def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str]
     enemy_result = {"win": False, "chance": 0, "roll": 0, "extra_exp": 0, "extra_currency": 0, "penalties": {}, "drop_items": {}}
     if event.get("type") == "enemy":
         enemy = event.get("enemy", {}) if isinstance(event.get("enemy"), dict) else {}
-        difficulty = enemy.get("difficulty", 1) if isinstance(enemy.get("difficulty"), int) else 1
         chance = calculate_enemy_win_chance(pet, enemy)
-        roll = random.randint(1, 100)
+        pet["battle"] = {
+            "enemy_id": event.get("enemy_id", "field_mouse"),
+            "location_id": location_id,
+            "win_chance": chance,
+            "created_at": utc_now().isoformat(),
+        }
+        enemy_result["pending"] = True
         enemy_result["chance"] = chance
-        enemy_result["roll"] = roll
-        if roll <= chance:
-            enemy_result["win"] = True
-            extra_exp = difficulty
-            extra_currency = max(1, difficulty // 2)
-            levels_gained += add_exp(pet, extra_exp)
-            pet["currency"] = int(pet.get("currency", 0)) + extra_currency if isinstance(pet.get("currency"), int) else extra_currency
-            enemy_result["extra_exp"] = extra_exp
-            enemy_result["extra_currency"] = extra_currency
-            if random.random() < 0.20:
-                drop_item = random.choice(["food", "soap", "toy", "energy_potion", "hearty_snack", "comb"])
-                inventory[drop_item] = int(inventory.get(drop_item, 0)) + 1
-                items_delta[drop_item] = items_delta.get(drop_item, 0) + 1
-                enemy_result["drop_items"][drop_item] = 1
-            if random.random() < 0.08:
-                scroll = random.choice(["strength_scroll", "agility_scroll", "instinct_scroll"])
-                inventory[scroll] = int(inventory.get(scroll, 0)) + 1
-                items_delta[scroll] = items_delta.get(scroll, 0) + 1
-                enemy_result["drop_items"][scroll] = enemy_result["drop_items"].get(scroll, 0) + 1
-        else:
-            extra = difficulty // 4
-            penalties = {"energy": -(8 + extra), "cleanliness": -(6 + extra), "love": -(4 + extra)}
-            for need, delta in penalties.items():
-                pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) + delta)
-            enemy_result["penalties"] = penalties
 
     travel = pet.get("travel")
     if not isinstance(travel, dict):
@@ -760,6 +746,92 @@ def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str]
     users[str(user_id)] = user
     save_users(users)
     return True, levels_gained, [], user, location, event, {"exp": base_exp, "currency": base_currency, "event_exp": event_exp, "event_currency": event_currency, "enemy_result": enemy_result, **spent, **items_delta}
+
+
+def get_enemy(enemy_id: str) -> dict[str, Any]:
+    return ENEMY_CATALOG.get(enemy_id, ENEMY_CATALOG["field_mouse"])
+
+
+def resolve_battle_attack(user_id: int) -> tuple[bool, dict[str, Any] | None]:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False, None
+    recalculate_needs(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False, None
+    battle = pet.get("battle")
+    if not isinstance(battle, dict):
+        users[str(user_id)] = user
+        save_users(users)
+        return False, user
+    enemy = get_enemy(str(battle.get("enemy_id", "field_mouse")))
+    chance = max(15, min(90, int(battle.get("win_chance", calculate_enemy_win_chance(pet, enemy)))))
+    win = random.randint(1, 100) <= chance
+    difficulty = enemy.get("difficulty", 1) if isinstance(enemy.get("difficulty"), int) else 1
+    inventory = pet.get("inventory") if isinstance(pet.get("inventory"), dict) else DEFAULT_INVENTORY.copy()
+    pet["inventory"] = inventory
+    result = {"win": win, "chance": chance, "enemy": enemy, "drop_items": {}, "levels_gained": 0}
+    if win:
+        extra_exp = difficulty + 2
+        extra_currency = max(2, difficulty)
+        result["levels_gained"] = add_exp(pet, extra_exp)
+        pet["currency"] = int(pet.get("currency", 0)) + extra_currency if isinstance(pet.get("currency"), int) else extra_currency
+        result["extra_exp"] = extra_exp
+        result["extra_currency"] = extra_currency
+        if random.random() < 0.22:
+            drop_item = random.choice(["food", "soap", "toy", "energy_potion", "hearty_snack", "comb"])
+            inventory[drop_item] = int(inventory.get(drop_item, 0)) + 1
+            result["drop_items"][drop_item] = 1
+        if random.random() < 0.10:
+            scroll = random.choice(["strength_scroll", "agility_scroll", "instinct_scroll"])
+            inventory[scroll] = int(inventory.get(scroll, 0)) + 1
+            result["drop_items"][scroll] = result["drop_items"].get(scroll, 0) + 1
+    else:
+        extra = difficulty // 3
+        penalties = {"energy": -(10 + extra), "cleanliness": -(8 + extra), "love": -(6 + extra), "satiety": -(4 + extra)}
+        for need, delta in penalties.items():
+            pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) + delta)
+        result["penalties"] = penalties
+    pet["battle"] = None
+    update_pet_mood(pet)
+    pet["updated_at"] = utc_now().isoformat()
+    users[str(user_id)] = user
+    save_users(users)
+    return True, result
+
+
+def resolve_battle_run(user_id: int) -> tuple[bool, dict[str, Any] | None]:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False, None
+    recalculate_needs(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False, None
+    battle = pet.get("battle")
+    if not isinstance(battle, dict):
+        users[str(user_id)] = user
+        save_users(users)
+        return False, user
+    enemy = get_enemy(str(battle.get("enemy_id", "field_mouse")))
+    difficulty = enemy.get("difficulty", 1) if isinstance(enemy.get("difficulty"), int) else 1
+    skills = pet.get("skills", {}) if isinstance(pet.get("skills"), dict) else {}
+    agility = skills.get("agility", 0) if isinstance(skills.get("agility"), int) else 0
+    instinct = skills.get("instinct", 0) if isinstance(skills.get("instinct"), int) else 0
+    flee_chance = max(20, min(90, 55 + agility * 3 + instinct - difficulty * 7))
+    escaped = random.randint(1, 100) <= flee_chance
+    penalties = {"energy": -8} if escaped else {"energy": -14, "cleanliness": -7, "love": -5}
+    for need, delta in penalties.items():
+        pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) + delta)
+    pet["battle"] = None
+    update_pet_mood(pet)
+    pet["updated_at"] = utc_now().isoformat()
+    users[str(user_id)] = user
+    save_users(users)
+    return True, {"escaped": escaped, "enemy": enemy, "flee_chance": flee_chance, "penalties": penalties}
 
 
 def get_storage_stats() -> dict[str, float | int | str]:

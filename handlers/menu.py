@@ -3,6 +3,8 @@ from aiogram.types import Message
 
 from keyboards import (
     BTN_BACK,
+    BTN_BATTLE_ATTACK,
+    BTN_BATTLE_RUN,
     BTN_BUY_BIG_ENERGY,
     BTN_BUY_COMB,
     BTN_BUY_ENERGY,
@@ -36,6 +38,7 @@ from keyboards import (
     BTN_TRAIN_STRENGTH,
     BTN_TRAINING,
     BTN_TRAVEL,
+    battle_menu_keyboard,
     care_menu_keyboard,
     main_menu_keyboard,
     shop_menu_keyboard,
@@ -44,7 +47,9 @@ from keyboards import (
     travel_menu_keyboard,
 )
 from storage import (
+    calculate_enemy_win_chance,
     exp_to_next_level,
+    get_enemy,
     get_pet_max_needs,
     get_runaway_risk,
     get_item_catalog,
@@ -53,6 +58,8 @@ from storage import (
     get_travel_event,
     get_travel_locations,
     perform_travel,
+    resolve_battle_attack,
+    resolve_battle_run,
     shop_purchase,
     touch_user_needs,
     train_skill,
@@ -140,6 +147,8 @@ def _status_text(pet: dict) -> str:
     ]
     if risk in RISK_MAP:
         lines.extend(["", f"⚠️ Риск побега: {RISK_MAP[risk]}", "Еноту нужно больше любви."])
+    if isinstance(pet.get("battle"), dict):
+        lines.extend(["", "⚔️ Активная стычка: ждёт твоего решения."])
     return "\n".join(lines)
 
 
@@ -198,6 +207,18 @@ async def show_status(message: Message) -> None:
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
         await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        return
+    if isinstance(pet.get("battle"), dict):
+        battle = pet["battle"]
+        enemy = get_enemy(str(battle.get("enemy_id", "field_mouse")))
+        chance = max(15, min(90, int(battle.get("win_chance", calculate_enemy_win_chance(pet, enemy)))))
+        await message.answer(
+            "⚠️ У енота уже есть активная стычка.\n\n"
+            f"Противник: {enemy.get('name', 'Неизвестный враг')} {enemy.get('emoji', '')}\n"
+            f"Шанс победы: {chance}%\n\n"
+            "Выбери действие:",
+            reply_markup=battle_menu_keyboard(),
+        )
         return
     await message.answer(_status_text(pet), reply_markup=main_menu_keyboard())
 
@@ -441,6 +462,9 @@ async def travel_to_location(message: Message) -> None:
     available = [loc["button"] for loc in get_travel_locations().values() if level >= loc.get("min_level", 1)]
 
     if not success:
+        if "battle_pending" in missing:
+            await message.answer("Сначала разберись с текущим противником.", reply_markup=battle_menu_keyboard())
+            return
         req_map = {"energy": "⚡ Энергия", "satiety": "🍽 Сытость", "cleanliness": "🧼 Чистота", "level": "📌 Уровень"}
         req_lines = []
         for item in missing:
@@ -473,29 +497,15 @@ async def travel_to_location(message: Message) -> None:
     level_up_line = f"\n\n✨ Новый уровень! Енот достиг уровня {pet.get('level', 1)}." if levels_gained > 0 else ""
     enemy_block = ""
     if isinstance(event, dict) and event.get("type") == "enemy":
-        is_win = bool(enemy_result.get("win"))
+        enemy_name = str(event.get("enemy", {}).get("name", "Неизвестный враг"))
         chance = int(enemy_result.get("chance", 0))
-        battle_line = str(event.get("win_text", "Енот победил.")) if is_win else str(event.get("lose_text", "Енот отступил."))
-        outcome_line = "победа" if is_win else "поражение"
         enemy_block = (
-            "\n\nБой:\n"
-            f"{battle_line}\n"
+            "\n\n⚔️ Встреча с противником:\n"
+            f"Противник: {enemy_name}\n"
             f"Шанс победы: {chance}%\n"
-            f"Результат: {outcome_line}"
+            "Бой ещё не начался.\n"
+            "Навыки силы, ловкости и инстинкта влияют на исход."
         )
-        if is_win and (enemy_result.get("extra_exp", 0) or enemy_result.get("extra_currency", 0)):
-            enemy_block += "\n\nДополнительно:\n"
-            if enemy_result.get("extra_exp", 0):
-                enemy_block += f"• ✨ Опыт: +{enemy_result['extra_exp']}\n"
-            if enemy_result.get("extra_currency", 0):
-                enemy_block += f"• 🪙 Монеты: +{enemy_result['extra_currency']}\n"
-            enemy_block = enemy_block.rstrip()
-        if (not is_win) and isinstance(enemy_result.get("penalties"), dict):
-            penalties = enemy_result["penalties"]
-            enemy_block += "\n\nПотери:\n"
-            enemy_block += f"• ⚡ Энергия: {penalties.get('energy', 0)}\n"
-            enemy_block += f"• 🧼 Чистота: {penalties.get('cleanliness', 0)}\n"
-            enemy_block += f"• 💞 Забота: {penalties.get('love', 0)}"
 
     text = (
         f"🌲 {location_name}\n\n"
@@ -512,7 +522,68 @@ async def travel_to_location(message: Message) -> None:
         + ("\n" + "\n".join(item_lines) if item_lines else "")
         + level_up_line
     )
-    await message.answer(text, reply_markup=travel_menu_keyboard(available))
+    await message.answer(
+        text,
+        reply_markup=battle_menu_keyboard() if isinstance(event, dict) and event.get("type") == "enemy" else travel_menu_keyboard(available),
+    )
+
+
+@router.message(F.text == BTN_BATTLE_ATTACK)
+async def battle_attack(message: Message) -> None:
+    if message.from_user is None:
+        return
+    ok, result = resolve_battle_attack(message.from_user.id)
+    if not ok or not isinstance(result, dict):
+        await message.answer("Сейчас рядом нет противника.", reply_markup=main_menu_keyboard())
+        return
+    enemy = result.get("enemy", {}) if isinstance(result.get("enemy"), dict) else {}
+    if result.get("win"):
+        drops = result.get("drop_items", {})
+        drop_line = f"\nВыпало: {drops}" if isinstance(drops, dict) and drops else ""
+        await message.answer(
+            "⚔️ Бой\n"
+            f"Противник: {enemy.get('name', 'Неизвестный враг')}\n"
+            f"Шанс победы: {int(result.get('chance', 0))}%\n"
+            "Итог: победа\n"
+            f"Награда: ✨ +{result.get('extra_exp', 0)}, 🪙 +{result.get('extra_currency', 0)}"
+            f"{drop_line}"
+            + (f"\n✨ Новый уровень! +{result.get('levels_gained', 0)} ур." if int(result.get("levels_gained", 0)) > 0 else ""),
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+    penalties = result.get("penalties", {}) if isinstance(result.get("penalties"), dict) else {}
+    await message.answer(
+        "⚔️ Бой\n"
+        f"Противник: {enemy.get('name', 'Неизвестный враг')}\n"
+        f"Шанс победы: {int(result.get('chance', 0))}%\n"
+        "Итог: поражение\n"
+        f"Потери: ⚡ {penalties.get('energy', 0)}, 🧼 {penalties.get('cleanliness', 0)}, 💞 {penalties.get('love', 0)}, 🍽 {penalties.get('satiety', 0)}",
+        reply_markup=main_menu_keyboard(),
+    )
+
+
+@router.message(F.text == BTN_BATTLE_RUN)
+async def battle_run(message: Message) -> None:
+    if message.from_user is None:
+        return
+    ok, result = resolve_battle_run(message.from_user.id)
+    if not ok or not isinstance(result, dict):
+        await message.answer("Сейчас рядом нет противника.", reply_markup=main_menu_keyboard())
+        return
+    penalties = result.get("penalties", {}) if isinstance(result.get("penalties"), dict) else {}
+    enemy = result.get("enemy", {}) if isinstance(result.get("enemy"), dict) else {}
+    if result.get("escaped"):
+        await message.answer(
+            f"🏃 Енот ускользнул от врага: {enemy.get('name', 'Неизвестный враг')}.\nПотери: ⚡ {penalties.get('energy', 0)}",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+    await message.answer(
+        "🏃 Побег не удался: енота задели и напугали.\n"
+        f"Противник: {enemy.get('name', 'Неизвестный враг')}\n"
+        f"Потери: ⚡ {penalties.get('energy', 0)}, 🧼 {penalties.get('cleanliness', 0)}, 💞 {penalties.get('love', 0)}",
+        reply_markup=main_menu_keyboard(),
+    )
 
 
 async def _buy_item_action(message: Message, item_key: str, item_label: str) -> None:
