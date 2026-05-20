@@ -29,7 +29,16 @@ BTN_TRAIN_STRENGTH = "💪 Сила"
 BTN_TRAIN_AGILITY = "💨 Ловкость"
 BTN_TRAIN_INSTINCT = "🌙 Инстинкт"
 
-BTN_TRIP_FOREST = "🌲 Короткая прогулка в лес"
+
+TRAVEL_LOCATIONS = {
+    "forest_clearing": {"button": "🌿 Лесная поляна", "name": "Лесная поляна", "min_level": 1},
+    "quiet_thicket": {"button": "🌲 Тихая чаща", "name": "Тихая чаща", "min_level": 1},
+    "mushroom_path": {"button": "🍄 Грибная тропа", "name": "Грибная тропа", "min_level": 2},
+    "old_deadfall": {"button": "🪵 Старый бурелом", "name": "Старый бурелом", "min_level": 3},
+    "misty_stream": {"button": "💧 Туманный ручей", "name": "Туманный ручей", "min_level": 5},
+    "stone_ravine": {"button": "🪨 Каменный овраг", "name": "Каменный овраг", "min_level": 7},
+    "forest_ruins": {"button": "🏚 Лесные руины", "name": "Лесные руины", "min_level": 10},
+}
 
 BTN_BUY_FOOD = "🍎 Яблоко — 5 монет"
 BTN_BUY_HEARTY_SNACK = "🥪 Сытный перекус — 12 монет"
@@ -65,14 +74,13 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def travel_menu_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=BTN_TRIP_FOREST)],
-            [KeyboardButton(text=BTN_BACK)],
-        ],
-        resize_keyboard=True,
-    )
+def travel_menu_keyboard(buttons: list[str]) -> ReplyKeyboardMarkup:
+    rows: list[list[KeyboardButton]] = []
+    for idx in range(0, len(buttons), 2):
+        chunk = buttons[idx:idx + 2]
+        rows.append([KeyboardButton(text=item) for item in chunk])
+    rows.append([KeyboardButton(text=BTN_BACK)])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
 def care_menu_keyboard() -> ReplyKeyboardMarkup:

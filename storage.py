@@ -27,6 +27,9 @@ DEFAULT_INVENTORY = {
     "yarn_ball": 0,
     "fun_toy": 0,
     "big_energy_potion": 0,
+    "strength_scroll": 0,
+    "agility_scroll": 0,
+    "instinct_scroll": 0,
 }
 DEFAULT_SKILLS = {
     "strength": 0,
@@ -38,6 +41,38 @@ DEFAULT_TRAVEL = {
     "last_event": None,
 }
 NEEDS_TICK_MINUTES = 30
+
+TRAVEL_LOCATIONS = {
+    "forest_clearing": {"button": "🌿 Лесная поляна", "name": "Лесная поляна", "min_level": 1, "costs": {"energy": 15, "satiety": 8, "cleanliness": 4}, "rewards": {"exp": 8, "currency": 4}},
+    "quiet_thicket": {"button": "🌲 Тихая чаща", "name": "Тихая чаща", "min_level": 1, "costs": {"energy": 20, "satiety": 10, "cleanliness": 5}, "rewards": {"exp": 10, "currency": 5}},
+    "mushroom_path": {"button": "🍄 Грибная тропа", "name": "Грибная тропа", "min_level": 2, "costs": {"energy": 23, "satiety": 12, "cleanliness": 6}, "rewards": {"exp": 12, "currency": 6}},
+    "old_deadfall": {"button": "🪵 Старый бурелом", "name": "Старый бурелом", "min_level": 3, "costs": {"energy": 26, "satiety": 14, "cleanliness": 8}, "rewards": {"exp": 15, "currency": 8}},
+    "misty_stream": {"button": "💧 Туманный ручей", "name": "Туманный ручей", "min_level": 5, "costs": {"energy": 30, "satiety": 16, "cleanliness": 10}, "rewards": {"exp": 20, "currency": 10}},
+    "stone_ravine": {"button": "🪨 Каменный овраг", "name": "Каменный овраг", "min_level": 7, "costs": {"energy": 35, "satiety": 18, "cleanliness": 12}, "rewards": {"exp": 25, "currency": 13}},
+    "forest_ruins": {"button": "🏚 Лесные руины", "name": "Лесные руины", "min_level": 10, "costs": {"energy": 42, "satiety": 22, "cleanliness": 16}, "rewards": {"exp": 35, "currency": 18}},
+}
+
+TRAVEL_EVENTS = [
+    {"id": "berry_cache", "type": "good", "text": "Енот нашёл под листьями горсть сладких ягод 🍓", "effects": {"currency": 2, "items": {"food": 1}}},
+    {"id": "shiny_button", "type": "good", "text": "В мху блеснула старая пуговица. Енот решил, что это сокровище ✨", "effects": {"currency": 5}},
+    {"id": "honey_smell", "type": "good", "text": "Енот учуял запах дикого мёда и принёс липкую добычу 🍯", "effects": {"items": {"forest_honey": 1}}},
+    {"id": "clean_spring", "type": "good", "text": "У ручья енот умылся так важно, будто готовился к портрету 💧", "effects": {"needs": {"cleanliness": 15}}},
+    {"id": "warm_sun_patch", "type": "good", "text": "На солнечной кочке енот немного отдохнул и снова приободрился ☀️", "effects": {"needs": {"energy": 10}}},
+    {"id": "moss_inspection", "type": "neutral", "text": "Енот долго изучал мох. Научного вывода нет, но выглядело серьёзно 🌿", "effects": {}},
+    {"id": "suspicious_stump", "type": "neutral", "text": "Енот поспорил с подозрительным пнём. Пень не ответил 🪵", "effects": {}},
+    {"id": "owl_watched", "type": "neutral", "text": "С ветки за ним наблюдала сова. Енот сделал вид, что так и задумано 🦉", "effects": {}},
+    {"id": "lost_tracks", "type": "neutral", "text": "Следы вывели к луже и внезапно закончились 🐾", "effects": {}},
+    {"id": "rustle_in_bushes", "type": "neutral", "text": "В кустах что-то шуршало. Енот шуршал в ответ 🌲", "effects": {}},
+    {"id": "muddy_paws", "type": "bad", "text": "Енот провалился лапами в мокрую землю 🐾", "effects": {"needs": {"cleanliness": -15}}},
+    {"id": "thorny_bush", "type": "bad", "text": "Колючий куст оказался сильнее енотовой гордости 🌿", "effects": {"needs": {"love": -8, "energy": -5}}},
+    {"id": "snack_lost", "type": "bad", "text": "Пока енот изучал корягу, перекус куда-то исчез 🍎", "effects": {"needs": {"satiety": -10}}},
+    {"id": "loud_crack", "type": "bad", "text": "В лесу громко треснула ветка. Енот решил, что приключений достаточно 😳", "effects": {"needs": {"energy": -12}}},
+    {"id": "rain_cloud", "type": "bad", "text": "Маленькая туча выбрала именно этого енота ☔", "effects": {"needs": {"cleanliness": -10, "love": -5}}},
+    {"id": "strength_scroll_find", "type": "rare", "text": "Под корнем лежал старый свиток с грубым знаком лапы 📜", "effects": {"items": {"strength_scroll": 1}}},
+    {"id": "agility_scroll_find", "type": "rare", "text": "Между камней енот нашёл тонкий свиток с рисунком бегущего хвоста 📜", "effects": {"items": {"agility_scroll": 1}}},
+    {"id": "instinct_scroll_find", "type": "rare", "text": "На бересте проступали странные следы. Это оказался свиток инстинкта 📜", "effects": {"items": {"instinct_scroll": 1}}},
+]
+
 ITEM_CATALOG = {
     "food": {"name": "Яблоко", "emoji": "🍎", "category": "food", "need": "satiety", "restore": 50, "price": 5},
     "hearty_snack": {"name": "Сытный перекус", "emoji": "🥪", "category": "food", "need": "satiety", "restore": 90, "price": 12},
@@ -512,94 +547,110 @@ def train_skill(user_id: int, skill_name: str) -> tuple[bool, int, dict[str, Any
     return True, levels_gained, user
 
 
-def can_travel(pet: dict[str, Any]) -> tuple[bool, list[str]]:
-    missing: list[str] = []
-    energy = pet.get("energy", 0)
-    satiety = pet.get("satiety", 0)
-    cleanliness = pet.get("cleanliness", 0)
-
-    if not isinstance(energy, int) or energy < 20:
-        missing.append("energy >= 20")
-    if not isinstance(satiety, int) or satiety < 20:
-        missing.append("satiety >= 20")
-    if not isinstance(cleanliness, int) or cleanliness < 15:
-        missing.append("cleanliness >= 15")
-    return len(missing) == 0, missing
+def get_travel_locations() -> dict[str, dict[str, Any]]:
+    return TRAVEL_LOCATIONS
 
 
-def choose_travel_event(pet: dict[str, Any]) -> str:
+def get_travel_event(event_id: str) -> dict[str, Any] | None:
+    for event in TRAVEL_EVENTS:
+        if event.get("id") == event_id:
+            return event
+    return None
+
+
+def choose_travel_event(pet: dict[str, Any]) -> dict[str, Any]:
     skills = pet.get("skills")
     instinct = skills.get("instinct", 0) if isinstance(skills, dict) else 0
-    if isinstance(instinct, int) and instinct >= 3:
-        weights = [35, 55, 10]
-    else:
-        weights = [30, 50, 20]
-    return random.choices(["good", "neutral", "bad"], weights=weights, k=1)[0]
+    weights = {"good": 35, "neutral": 40, "bad": 20, "rare": 5}
+    if isinstance(instinct, int) and instinct >= 7:
+        weights = {"good": 40, "neutral": 42, "bad": 10, "rare": 8}
+    elif isinstance(instinct, int) and instinct >= 3:
+        weights = {"good": 38, "neutral": 42, "bad": 14, "rare": 6}
+
+    event_types = list(weights.keys())
+    chosen_type = random.choices(event_types, weights=[weights[t] for t in event_types], k=1)[0]
+    pool = [event for event in TRAVEL_EVENTS if event.get("type") == chosen_type]
+    return random.choice(pool)
 
 
-def apply_travel_event(pet: dict[str, Any], event_type: str) -> str:
+def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str], dict[str, Any] | None, dict[str, Any] | None, dict[str, int] | None, dict[str, int] | None]:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False, 0, ["pet is missing"], None, None, None, None
+
+    recalculate_needs(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False, 0, ["pet is missing"], None, None, None, None
+
+    location = TRAVEL_LOCATIONS.get(location_id)
+    if not isinstance(location, dict):
+        return False, 0, ["unknown location"], user, None, None, None
+
+    level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
+    if level < location.get("min_level", 1):
+        return False, 0, [f"level >= {location.get('min_level', 1)}"], user, location, None, None
+
+    costs = location.get("costs", {})
+    missing = []
+    for need in ("energy", "satiety", "cleanliness"):
+        required = int(costs.get(need, 0))
+        current = pet.get(need, 0)
+        if not isinstance(current, int) or current < required:
+            missing.append(f"{need} >= {required}")
+    if missing:
+        users[str(user_id)] = user
+        save_users(users)
+        return False, 0, missing, user, location, None, None
+
+    spent = {k: int(v) for k, v in costs.items() if isinstance(v, int)}
+    for need, value in spent.items():
+        pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) - value)
+
+    rewards = location.get("rewards", {})
+    base_exp = int(rewards.get("exp", 0))
+    base_currency = int(rewards.get("currency", 0))
+    pet["currency"] = int(pet.get("currency", 0)) + base_currency if isinstance(pet.get("currency"), int) else base_currency
+    levels_gained = add_exp(pet, base_exp)
+
     inventory = pet.get("inventory")
     if not isinstance(inventory, dict):
         pet["inventory"] = DEFAULT_INVENTORY.copy()
         inventory = pet["inventory"]
 
-    if event_type == "good":
-        food = inventory.get("food", 0)
-        inventory["food"] = (food if isinstance(food, int) else 0) + 1
-        currency = pet.get("currency", 0)
-        pet["currency"] = (currency if isinstance(currency, int) else 0) + 3
-        return "Raccoon found extra berries."
-    if event_type == "bad":
-        pet["cleanliness"] = clamp_need_by_level(pet, "cleanliness", int(pet.get("cleanliness", 0)) - 10)
-        return "Raccoon got muddy."
-    return "Peaceful walk through the forest."
+    event = choose_travel_event(pet)
+    effects = event.get("effects", {}) if isinstance(event.get("effects"), dict) else {}
+    event_exp = int(effects.get("exp", 0)) if isinstance(effects.get("exp", 0), int) else 0
+    event_currency = int(effects.get("currency", 0)) if isinstance(effects.get("currency", 0), int) else 0
+    if event_exp:
+        levels_gained += add_exp(pet, event_exp)
+    if event_currency:
+        pet["currency"] = int(pet.get("currency", 0)) + event_currency if isinstance(pet.get("currency"), int) else event_currency
 
+    for need, delta in (effects.get("needs", {}) if isinstance(effects.get("needs"), dict) else {}).items():
+        if isinstance(delta, int):
+            pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) + delta)
 
-def perform_short_forest_trip(user_id: int) -> tuple[bool, int, list[str], dict[str, Any] | None]:
-    users = load_users()
-    user = users.get(str(user_id))
-    if not isinstance(user, dict):
-        return False, 0, ["pet is missing"], None
-
-    recalculate_needs(user)
-    pet = user.get("pet")
-    if not isinstance(pet, dict):
-        return False, 0, ["pet is missing"], None
-
-    allowed, missing = can_travel(pet)
-    if not allowed:
-        users[str(user_id)] = user
-        save_users(users)
-        return False, 0, missing, user
-
-    pet["energy"] = clamp_need_by_level(pet, "energy", int(pet.get("energy", 0)) - 20)
-    pet["satiety"] = clamp_need_by_level(pet, "satiety", int(pet.get("satiety", 0)) - 10)
-    pet["cleanliness"] = clamp_need_by_level(pet, "cleanliness", int(pet.get("cleanliness", 0)) - 5)
-    pet["currency"] = int(pet.get("currency", 0)) + 5 if isinstance(pet.get("currency"), int) else 5
-    levels_gained = add_exp(pet, 10)
+    items_delta = {}
+    for item, amount in (effects.get("items", {}) if isinstance(effects.get("items"), dict) else {}).items():
+        if isinstance(amount, int):
+            current = inventory.get(item, 0)
+            inventory[item] = (current if isinstance(current, int) else 0) + amount
+            items_delta[item] = amount
 
     travel = pet.get("travel")
     if not isinstance(travel, dict):
         pet["travel"] = DEFAULT_TRAVEL.copy()
         travel = pet["travel"]
+    travel["total_travels"] = int(travel.get("total_travels", 0)) + 1
+    travel["last_event"] = event.get("id")
 
-    travels = travel.get("total_travels", 0)
-    travel["total_travels"] = (travels if isinstance(travels, int) else 0) + 1
-
-    event_type = choose_travel_event(pet)
-    event_text = apply_travel_event(pet, event_type)
-    travel["last_event"] = event_text
-
-    pet["cleanliness"] = clamp_need_by_level(pet, "cleanliness", int(pet.get("cleanliness", 0)))
-    pet["satiety"] = clamp_need_by_level(pet, "satiety", int(pet.get("satiety", 0)))
-    pet["energy"] = clamp_need_by_level(pet, "energy", int(pet.get("energy", 0)))
-    pet["love"] = clamp_need_by_level(pet, "love", int(pet.get("love", 0)))
     update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
-
     users[str(user_id)] = user
     save_users(users)
-    return True, levels_gained, [], user
+    return True, levels_gained, [], user, event, spent, {"exp": base_exp, "currency": base_currency, "event_exp": event_exp, "event_currency": event_currency, **items_delta}
 
 
 def get_storage_stats() -> dict[str, float | int | str]:
