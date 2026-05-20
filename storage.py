@@ -40,16 +40,17 @@ SHOP_PRICES = {
 
 
 def update_pet_mood(pet: dict[str, Any]) -> str:
+    max_needs = get_pet_max_needs(pet)
     satiety = int(pet.get("satiety", DEFAULT_NEEDS["satiety"]))
     cleanliness = int(pet.get("cleanliness", DEFAULT_NEEDS["cleanliness"]))
     love = int(pet.get("love", DEFAULT_NEEDS["love"]))
     energy = int(pet.get("energy", DEFAULT_NEEDS["energy"]))
 
-    if satiety < 20 or cleanliness < 20 or love < 20:
+    if satiety < max_needs["satiety"] * 0.2 or cleanliness < max_needs["cleanliness"] * 0.2 or love < max_needs["love"] * 0.2:
         mood = "distressed"
-    elif satiety < 40 or cleanliness < 40 or love < 40 or energy < 20:
+    elif satiety < max_needs["satiety"] * 0.4 or cleanliness < max_needs["cleanliness"] * 0.4 or love < max_needs["love"] * 0.4 or energy < max_needs["energy"] * 0.2:
         mood = "tired"
-    elif satiety >= 80 and cleanliness >= 80 and love >= 80 and energy >= 60:
+    elif satiety >= max_needs["satiety"] * 0.8 and cleanliness >= max_needs["cleanliness"] * 0.8 and love >= max_needs["love"] * 0.8 and energy >= max_needs["energy"] * 0.6:
         mood = "happy"
     else:
         mood = "normal"
@@ -60,11 +61,12 @@ def update_pet_mood(pet: dict[str, Any]) -> str:
 
 def get_runaway_risk(pet: dict[str, Any]) -> str:
     love = int(pet.get("love", DEFAULT_NEEDS["love"]))
-    if love < 15:
+    love_max = get_pet_max_needs(pet)["love"]
+    if love < love_max * 0.15:
         return "high"
-    if love < 30:
+    if love < love_max * 0.30:
         return "medium"
-    if love < 45:
+    if love < love_max * 0.45:
         return "low"
     return "none"
 
@@ -93,6 +95,22 @@ def _ensure_storage_file() -> None:
 
 def clamp_need(value: int) -> int:
     return max(0, min(100, value))
+
+
+def get_max_need_value(level: int) -> int:
+    safe_level = level if isinstance(level, int) and level > 0 else 1
+    return 100 + (safe_level - 1) * 17
+
+
+def get_pet_max_needs(pet: dict[str, Any]) -> dict[str, int]:
+    level = pet.get("level", 1) if isinstance(pet, dict) else 1
+    max_value = get_max_need_value(level if isinstance(level, int) else 1)
+    return {"satiety": max_value, "cleanliness": max_value, "love": max_value, "energy": max_value}
+
+
+def clamp_need_by_level(pet: dict[str, Any], need: str, value: int) -> int:
+    need_max = get_pet_max_needs(pet).get(need, 100)
+    return max(0, min(need_max, value))
 
 
 def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
@@ -161,16 +179,24 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
         pet["mood"] = "normal"
         changed = True
 
+    for need in DEFAULT_NEEDS:
+        current = pet.get(need, DEFAULT_NEEDS[need])
+        if isinstance(current, int):
+            clamped = clamp_need_by_level(pet, need, current)
+            if clamped != current:
+                pet[need] = clamped
+                changed = True
+
     return user_data, changed
 
 
 def apply_elapsed_need_ticks(pet: dict[str, Any], ticks: int) -> None:
     if ticks <= 0:
         return
-    pet["satiety"] = clamp_need(int(pet.get("satiety", 0)) - (2 * ticks))
-    pet["cleanliness"] = clamp_need(int(pet.get("cleanliness", 0)) - (1 * ticks))
-    pet["love"] = clamp_need(int(pet.get("love", 0)) - (1 * ticks))
-    pet["energy"] = clamp_need(int(pet.get("energy", 0)) + (3 * ticks))
+    pet["satiety"] = clamp_need_by_level(pet, "satiety", int(pet.get("satiety", 0)) - (2 * ticks))
+    pet["cleanliness"] = clamp_need_by_level(pet, "cleanliness", int(pet.get("cleanliness", 0)) - (1 * ticks))
+    pet["love"] = clamp_need_by_level(pet, "love", int(pet.get("love", 0)) - (1 * ticks))
+    pet["energy"] = clamp_need_by_level(pet, "energy", int(pet.get("energy", 0)) + (3 * ticks))
 
 
 def recalculate_needs(user_data: dict[str, Any]) -> bool:
@@ -375,7 +401,7 @@ def update_pet_need(user_id: int, need: str, amount: int, inventory_item: str) -
     if not isinstance(current_value, int):
         current_value = 0
 
-    pet[need] = clamp_need(current_value + amount)
+    pet[need] = clamp_need_by_level(pet, need, current_value + amount)
     update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
@@ -449,7 +475,7 @@ def train_skill(user_id: int, skill_name: str) -> tuple[bool, int, dict[str, Any
         skill_value = 0
 
     skills[skill_name] = skill_value + 1
-    pet["energy"] = clamp_need(int(pet.get("energy", 0)) - 15)
+    pet["energy"] = clamp_need_by_level(pet, "energy", int(pet.get("energy", 0)) - 15)
     levels_gained = add_exp(pet, 5)
     update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
@@ -496,7 +522,7 @@ def apply_travel_event(pet: dict[str, Any], event_type: str) -> str:
         pet["currency"] = (currency if isinstance(currency, int) else 0) + 3
         return "Raccoon found extra berries."
     if event_type == "bad":
-        pet["cleanliness"] = clamp_need(int(pet.get("cleanliness", 0)) - 10)
+        pet["cleanliness"] = clamp_need_by_level(pet, "cleanliness", int(pet.get("cleanliness", 0)) - 10)
         return "Raccoon got muddy."
     return "Peaceful walk through the forest."
 
@@ -518,9 +544,9 @@ def perform_short_forest_trip(user_id: int) -> tuple[bool, int, list[str], dict[
         save_users(users)
         return False, 0, missing, user
 
-    pet["energy"] = clamp_need(int(pet.get("energy", 0)) - 20)
-    pet["satiety"] = clamp_need(int(pet.get("satiety", 0)) - 10)
-    pet["cleanliness"] = clamp_need(int(pet.get("cleanliness", 0)) - 5)
+    pet["energy"] = clamp_need_by_level(pet, "energy", int(pet.get("energy", 0)) - 20)
+    pet["satiety"] = clamp_need_by_level(pet, "satiety", int(pet.get("satiety", 0)) - 10)
+    pet["cleanliness"] = clamp_need_by_level(pet, "cleanliness", int(pet.get("cleanliness", 0)) - 5)
     pet["currency"] = int(pet.get("currency", 0)) + 5 if isinstance(pet.get("currency"), int) else 5
     levels_gained = add_exp(pet, 10)
 
@@ -536,10 +562,10 @@ def perform_short_forest_trip(user_id: int) -> tuple[bool, int, list[str], dict[
     event_text = apply_travel_event(pet, event_type)
     travel["last_event"] = event_text
 
-    pet["cleanliness"] = clamp_need(int(pet.get("cleanliness", 0)))
-    pet["satiety"] = clamp_need(int(pet.get("satiety", 0)))
-    pet["energy"] = clamp_need(int(pet.get("energy", 0)))
-    pet["love"] = clamp_need(int(pet.get("love", 0)))
+    pet["cleanliness"] = clamp_need_by_level(pet, "cleanliness", int(pet.get("cleanliness", 0)))
+    pet["satiety"] = clamp_need_by_level(pet, "satiety", int(pet.get("satiety", 0)))
+    pet["energy"] = clamp_need_by_level(pet, "energy", int(pet.get("energy", 0)))
+    pet["love"] = clamp_need_by_level(pet, "love", int(pet.get("love", 0)))
     update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
 

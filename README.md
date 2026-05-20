@@ -19,6 +19,8 @@ Telegram RPG tamagotchi bot where users create a raccoon pet, care for it, train
 - Shop
 - EXP and leveling
 - Mood and runaway risk warning
+- Need maximums scale with level
+- Basic care items restore fixed values, so their relative impact decreases at higher levels
 
 ## Local run
 

@@ -31,6 +31,7 @@ from keyboards import (
 )
 from storage import (
     exp_to_next_level,
+    get_pet_max_needs,
     get_runaway_risk,
     get_shop_items,
     get_user,
@@ -74,21 +75,22 @@ def _localize_event(event: str | None) -> str:
 def _status_text(pet: dict) -> str:
     mood = _localize_mood(update_pet_mood(pet))
     risk = get_runaway_risk(pet)
+    max_needs = get_pet_max_needs(pet)
     lines = [
         f"🦝 Енот: {pet.get('name', '-')}",
         f"😊 Настроение: {mood}",
         "",
         "🍽 Сытость",
-        format_bar(pet.get("satiety", 80)),
+        format_bar(pet.get("satiety", 80), max_needs["satiety"]),
         "",
         "🧼 Чистота",
-        format_bar(pet.get("cleanliness", 80)),
+        format_bar(pet.get("cleanliness", 80), max_needs["cleanliness"]),
         "",
         "💞 Любовь",
-        format_bar(pet.get("love", 80)),
+        format_bar(pet.get("love", 80), max_needs["love"]),
         "",
         "⚡ Энергия",
-        format_bar(pet.get("energy", 80)),
+        format_bar(pet.get("energy", 80), max_needs["energy"]),
     ]
     if risk in RISK_MAP:
         lines.extend(["", f"⚠️ Риск побега: {RISK_MAP[risk]}", "Еноту нужно больше любви."])
@@ -102,11 +104,13 @@ def _raccoon_profile_text(pet: dict) -> str:
     safe_level = level if isinstance(level, int) and level > 0 else 1
     exp = pet.get("exp", 0)
     safe_exp = exp if isinstance(exp, int) and exp >= 0 else 0
+    max_needs = get_pet_max_needs(pet)
     return (
         f"🦝 {pet.get('name', '-')}\n\n"
         f"📌 Уровень: {safe_level}\n"
         f"✨ Опыт: {safe_exp} / {exp_to_next_level(safe_level)}\n"
-        f"😊 Настроение: {mood}\n\n"
+        f"😊 Настроение: {mood}\n"
+        f"📈 Максимум шкал: {max_needs['satiety']}\n\n"
         "💪 Навыки:\n"
         f"• Сила: {skills.get('strength', 0)}\n"
         f"• Ловкость: {skills.get('agility', 0)}\n"
@@ -235,22 +239,22 @@ async def _perform_care_action(message: Message, need: str, amount: int, item: s
 
 @router.message(F.text == BTN_FEED)
 async def care_feed(message: Message) -> None:
-    await _perform_care_action(message, "satiety", 20, "food", "Енот с удовольствием перекусил 🍎", "Еды нет. Загляни в магазин 🛒")
+    await _perform_care_action(message, "satiety", 50, "food", "Енот с удовольствием перекусил 🍎", "Еды нет. Загляни в магазин 🛒")
 
 
 @router.message(F.text == BTN_CLEAN)
 async def care_clean(message: Message) -> None:
-    await _perform_care_action(message, "cleanliness", 20, "soap", "Енот снова чистый и пушистый 🧼", "Мыла нет. Загляни в магазин 🛒")
+    await _perform_care_action(message, "cleanliness", 50, "soap", "Енот снова чистый и пушистый 🧼", "Мыла нет. Загляни в магазин 🛒")
 
 
 @router.message(F.text == BTN_PLAY)
 async def care_play(message: Message) -> None:
-    await _perform_care_action(message, "love", 20, "toy", "Енот радостно поиграл с тобой 🎾", "Игрушек нет. Загляни в магазин 🛒")
+    await _perform_care_action(message, "love", 50, "toy", "Енот радостно поиграл с тобой 🎾", "Игрушек нет. Загляни в магазин 🛒")
 
 
 @router.message(F.text == BTN_ENERGY)
 async def care_energy(message: Message) -> None:
-    await _perform_care_action(message, "energy", 30, "energy_potion", "Енот выпил зелье и приободрился ⚡", "Зелий энергии нет. Загляни в магазин 🛒")
+    await _perform_care_action(message, "energy", 50, "energy_potion", "Енот выпил зелье и приободрился ⚡", "Зелий энергии нет. Загляни в магазин 🛒")
 
 
 async def _train(message: Message, skill_name: str, success_message: str) -> None:
