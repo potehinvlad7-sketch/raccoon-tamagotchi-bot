@@ -73,6 +73,24 @@ TRAVEL_EVENT_MAP = {
 TRAVEL_BUTTON_TO_ID = {value["button"]: key for key, value in TRAVEL_LOCATIONS.items()}
 
 
+def _resolve_travel_location_id(button_text: str | None) -> str | None:
+    if not button_text:
+        return None
+    direct = TRAVEL_BUTTON_TO_ID.get(button_text)
+    if direct:
+        return direct
+
+    normalized = " ".join(button_text.split()).strip()
+    if not normalized:
+        return None
+
+    for location_id, location in TRAVEL_LOCATIONS.items():
+        button = str(location.get("button", "")).strip()
+        if normalized == " ".join(button.split()):
+            return location_id
+    return None
+
+
 def format_bar(value: int, maximum: int = 100, length: int = 10) -> str:
     safe_maximum = maximum if maximum > 0 else 100
     clamped = max(0, min(value if isinstance(value, int) else 0, safe_maximum))
@@ -365,7 +383,7 @@ async def train_instinct(message: Message) -> None:
 async def travel_to_location(message: Message) -> None:
     if message.from_user is None:
         return
-    location_id = TRAVEL_BUTTON_TO_ID.get(message.text or "")
+    location_id = _resolve_travel_location_id(message.text)
     if not location_id:
         return
 

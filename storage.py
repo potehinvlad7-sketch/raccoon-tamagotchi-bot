@@ -573,7 +573,7 @@ def choose_travel_event(pet: dict[str, Any]) -> dict[str, Any]:
     return random.choice(pool)
 
 
-def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str], dict[str, Any] | None, dict[str, Any] | None, dict[str, int] | None, dict[str, int] | None]:
+def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str], dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None, dict[str, int] | None]:
     users = load_users()
     user = users.get(str(user_id))
     if not isinstance(user, dict):
@@ -650,7 +650,7 @@ def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str]
     pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
     save_users(users)
-    return True, levels_gained, [], user, event, spent, {"exp": base_exp, "currency": base_currency, "event_exp": event_exp, "event_currency": event_currency, **items_delta}
+    return True, levels_gained, [], user, location, event, {"exp": base_exp, "currency": base_currency, "event_exp": event_exp, "event_currency": event_currency, **spent, **items_delta}
 
 
 def get_storage_stats() -> dict[str, float | int | str]:
