@@ -20,6 +20,11 @@ DEFAULT_INVENTORY = {
     "toy": 2,
     "energy_potion": 1,
 }
+DEFAULT_SKILLS = {
+    "strength": 0,
+    "agility": 0,
+    "instinct": 0,
+}
 NEEDS_TICK_MINUTES = 30
 
 
@@ -68,6 +73,16 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
         for item, default in DEFAULT_INVENTORY.items():
             if not isinstance(inventory.get(item), int):
                 inventory[item] = default
+                changed = True
+
+    skills = pet.get("skills")
+    if not isinstance(skills, dict):
+        pet["skills"] = DEFAULT_SKILLS.copy()
+        changed = True
+    else:
+        for skill, default in DEFAULT_SKILLS.items():
+            if not isinstance(skills.get(skill), int):
+                skills[skill] = default
                 changed = True
 
     updated_at = parse_datetime(pet.get("updated_at"))
@@ -186,6 +201,7 @@ def create_pet(user_id: int, name: str, gender: str) -> dict[str, Any]:
             "cleanliness": DEFAULT_NEEDS["cleanliness"],
             "love": DEFAULT_NEEDS["love"],
             "energy": DEFAULT_NEEDS["energy"],
+            "skills": DEFAULT_SKILLS.copy(),
             "inventory": DEFAULT_INVENTORY.copy(),
             "created_at": now,
             "updated_at": now,
@@ -235,3 +251,46 @@ def update_pet_need(user_id: int, need: str, amount: int, inventory_item: str) -
     users[str(user_id)] = user
     save_users(users)
     return True
+
+
+def has_enough_energy(pet: dict[str, Any], amount: int) -> bool:
+    energy = pet.get("energy", 0)
+    return isinstance(energy, int) and energy >= amount
+
+
+def train_skill(user_id: int, skill_name: str) -> tuple[bool, dict[str, Any] | None]:
+    if skill_name not in DEFAULT_SKILLS:
+        return False, None
+
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False, None
+
+    recalculate_needs(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return False, None
+
+    if not has_enough_energy(pet, 15):
+        users[str(user_id)] = user
+        save_users(users)
+        return False, user
+
+    skills = pet.get("skills")
+    if not isinstance(skills, dict):
+        pet["skills"] = DEFAULT_SKILLS.copy()
+        skills = pet["skills"]
+
+    skill_value = skills.get(skill_name, 0)
+    if not isinstance(skill_value, int):
+        skill_value = 0
+
+    skills[skill_name] = skill_value + 1
+    pet["energy"] = clamp_need(int(pet.get("energy", 0)) - 15)
+    exp = pet.get("exp", 0)
+    pet["exp"] = (exp if isinstance(exp, int) else 0) + 5
+    pet["updated_at"] = utc_now().isoformat()
+    users[str(user_id)] = user
+    save_users(users)
+    return True, user

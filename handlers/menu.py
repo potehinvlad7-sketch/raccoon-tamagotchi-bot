@@ -1,8 +1,8 @@
 from aiogram import F, Router
 from aiogram.types import Message
 
-from keyboards import care_menu_keyboard, main_menu_keyboard
-from storage import get_user, touch_user_needs, update_pet_need
+from keyboards import care_menu_keyboard, main_menu_keyboard, training_menu_keyboard
+from storage import get_user, touch_user_needs, train_skill, update_pet_need
 
 
 router = Router()
@@ -10,6 +10,7 @@ router = Router()
 
 def _status_text(pet: dict) -> str:
     inventory = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
+    skills = pet.get("skills", {}) if isinstance(pet.get("skills"), dict) else {}
     return (
         "🐾 Raccoon Status\n"
         f"Name: {pet.get('name', '-')}\n"
@@ -22,6 +23,10 @@ def _status_text(pet: dict) -> str:
         f"Cleanliness: {pet.get('cleanliness', 80)}/100\n"
         f"Love: {pet.get('love', 80)}/100\n"
         f"Energy: {pet.get('energy', 80)}/100\n\n"
+        "💪 Skills\n"
+        f"Strength: {skills.get('strength', 0)}  "
+        f"Agility: {skills.get('agility', 0)}  "
+        f"Instinct: {skills.get('instinct', 0)}\n\n"
         "Needs update automatically over elapsed time.\n\n"
         "🎒 Inventory\n"
         f"Food: {inventory.get('food', 0)}\n"
@@ -67,6 +72,13 @@ async def care_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
     await message.answer("Choose a care action:", reply_markup=care_menu_keyboard())
+
+
+@router.message(F.text == "Training")
+async def training_menu(message: Message) -> None:
+    if message.from_user is not None:
+        touch_user_needs(message.from_user.id)
+    await message.answer("Choose a training:", reply_markup=training_menu_keyboard())
 
 
 @router.message(F.text == "Back to main menu")
@@ -150,3 +162,41 @@ async def care_energy(message: Message) -> None:
         action_name="Energy boost",
         missing_message="No energy potions left. Save one for next time!",
     )
+
+
+async def _train(message: Message, skill_name: str, label: str) -> None:
+    if message.from_user is None:
+        return
+
+    trained, user = train_skill(message.from_user.id, skill_name)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("You do not have a raccoon yet. Send /start to create one.")
+        return
+
+    if not trained:
+        await message.answer(
+            "Your raccoon is too tired for training now. Let it rest a little!",
+            reply_markup=training_menu_keyboard(),
+        )
+        return
+
+    await message.answer(
+        f"{label} training completed! (+1 {label}, +5 EXP, -15 energy)\n\n{_status_text(pet)}",
+        reply_markup=training_menu_keyboard(),
+    )
+
+
+@router.message(F.text == "Train Strength")
+async def train_strength(message: Message) -> None:
+    await _train(message, "strength", "Strength")
+
+
+@router.message(F.text == "Train Agility")
+async def train_agility(message: Message) -> None:
+    await _train(message, "agility", "Agility")
+
+
+@router.message(F.text == "Train Instinct")
+async def train_instinct(message: Message) -> None:
+    await _train(message, "instinct", "Instinct")
