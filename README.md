@@ -49,3 +49,8 @@ Telegram RPG tamagotchi bot where users create a raccoon pet, care for it, train
 - `/admin` — admin panel
 - `/admin_stats` — JSON storage stats
 - `/backup` — create JSON backup in `data/backups/`
+
+
+## Stage 10.3
+- Путешествия получили локации с требованиями по уровню и расширенный каталог событий.
+- Во время путешествий могут редко выпадать свитки для будущих механик тренировок.

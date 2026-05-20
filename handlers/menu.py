@@ -36,11 +36,11 @@ from keyboards import (
     BTN_TRAIN_STRENGTH,
     BTN_TRAINING,
     BTN_TRAVEL,
-    BTN_TRIP_FOREST,
     care_menu_keyboard,
     main_menu_keyboard,
     shop_menu_keyboard,
     training_menu_keyboard,
+    TRAVEL_LOCATIONS,
     travel_menu_keyboard,
 )
 from storage import (
@@ -50,7 +50,9 @@ from storage import (
     get_item_catalog,
     get_shop_items,
     get_user,
-    perform_short_forest_trip,
+    get_travel_event,
+    get_travel_locations,
+    perform_travel,
     shop_purchase,
     touch_user_needs,
     train_skill,
@@ -63,11 +65,12 @@ router = Router()
 MOOD_MAP = {"happy": "счастливый", "normal": "обычное", "tired": "уставший", "distressed": "тревожный"}
 RISK_MAP = {"low": "низкий", "medium": "средний", "high": "высокий"}
 TRAVEL_EVENT_MAP = {
-    "raccoon found extra berries": "енот нашёл горсть лесных ягод 🍓",
     "peaceful walk through the forest": "спокойная прогулка по лесной тропе 🌲",
+    "raccoon found extra berries": "енот нашёл горсть лесных ягод 🍓",
     "raccoon got muddy": "енот испачкался в мокрой земле 🐾",
 }
 
+TRAVEL_BUTTON_TO_ID = {value["button"]: key for key, value in TRAVEL_LOCATIONS.items()}
 
 
 def format_bar(value: int, maximum: int = 100, length: int = 10) -> str:
@@ -84,7 +87,11 @@ def _localize_mood(mood: str) -> str:
 def _localize_event(event: str | None) -> str:
     if not event:
         return "пока не было"
-    return TRAVEL_EVENT_MAP.get(event.strip().lower(), event)
+    direct = get_travel_event(event)
+    if isinstance(direct, dict):
+        return str(direct.get("text", event))
+    normalized = event.strip().lower().rstrip(".")
+    return TRAVEL_EVENT_MAP.get(normalized, event)
 
 
 def _status_text(pet: dict) -> str:
@@ -152,7 +159,11 @@ def _inventory_text(pet: dict) -> str:
         f"• 🪀 Игрушки: {inventory.get('fun_toy', 0)}\n\n"
         "⚡ Энергия:\n"
         f"• ⚡ Малые зелья: {inventory.get('energy_potion', 0)}\n"
-        f"• 🔋 Большие зелья: {inventory.get('big_energy_potion', 0)}"
+        f"• 🔋 Большие зелья: {inventory.get('big_energy_potion', 0)}\n\n"
+        "📜 Свитки:\n"
+        f"• 📜 Свиток силы: {inventory.get('strength_scroll', 0)}\n"
+        f"• 📜 Свиток ловкости: {inventory.get('agility_scroll', 0)}\n"
+        f"• 📜 Свиток инстинкта: {inventory.get('instinct_scroll', 0)}"
     )
 
 @router.message(F.text == BTN_STATUS)
@@ -229,12 +240,20 @@ async def travel_menu(message: Message) -> None:
         await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
     travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
+    locations = get_travel_locations()
+    level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
+    unlocked = [loc["button"] for loc in locations.values() if level >= loc.get("min_level", 1)]
+    locked_lines = [f"🔒 {loc['name']} — с уровня {loc['min_level']}" for loc in locations.values() if level < loc.get("min_level", 1)]
+    locked_text = "\n".join(locked_lines) if locked_lines else "—"
     await message.answer(
         "🌲 Путешествия\n\n"
         f"• Всего прогулок: {travel.get('total_travels', 0)}\n"
         f"• Последнее событие: {_localize_event(travel.get('last_event'))}\n\n"
-        "Куда отправим енота?",
-        reply_markup=travel_menu_keyboard(),
+        "Доступные места:\n"
+        + ("\n".join(f"• {b}" for b in unlocked) if unlocked else "—")
+        + "\n\n"
+        + locked_text,
+        reply_markup=travel_menu_keyboard(unlocked),
     )
 
 
@@ -342,29 +361,68 @@ async def train_instinct(message: Message) -> None:
     await _train(message, "instinct", "Тренировка инстинкта завершена 🌙")
 
 
-@router.message(F.text == BTN_TRIP_FOREST)
-async def short_forest_trip(message: Message) -> None:
+@router.message(F.text.in_(set(TRAVEL_BUTTON_TO_ID.keys())))
+async def travel_to_location(message: Message) -> None:
     if message.from_user is None:
         return
-    success, levels_gained, missing, user = perform_short_forest_trip(message.from_user.id)
+    location_id = TRAVEL_BUTTON_TO_ID.get(message.text or "")
+    if not location_id:
+        return
+
+    success, levels_gained, missing, user, location, event, result = perform_travel(message.from_user.id, location_id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
         await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
+
+    level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
+    available = [loc["button"] for loc in get_travel_locations().values() if level >= loc.get("min_level", 1)]
+
     if not success:
-        req_map = {"energy": "энергия (минимум 30)", "satiety": "сытость (минимум 30)", "cleanliness": "чистота (минимум 20)"}
-        req_lines = "\n".join(f"• {req_map.get(item, item)}" for item in missing)
-        await message.answer(f"Енот пока не готов к путешествию:\n{req_lines}", reply_markup=travel_menu_keyboard())
+        req_map = {"energy": "⚡ Энергия", "satiety": "🍽 Сытость", "cleanliness": "🧼 Чистота", "level": "📌 Уровень"}
+        req_lines = []
+        for item in missing:
+            name = item.split(" >= ")[0]
+            value = item.split(" >= ")[1] if " >= " in item else "?"
+            req_lines.append(f"• {req_map.get(name, name)}: нужно минимум {value}")
+        await message.answer(
+            "Енот пока не готов к путешествию:\n" + "\n".join(req_lines),
+            reply_markup=travel_menu_keyboard(available),
+        )
         return
-    level_up_line = f"\nНовый уровень! Енот достиг уровня {pet.get('level', 1)} ✨" if levels_gained > 0 else ""
-    event = _localize_event(pet.get("travel", {}).get("last_event"))
-    await message.answer(
-        "Прогулка завершена 🌲\n"
-        "Потрачено: энергия -20, сытость -10, чистота -5\n"
-        "Награда: опыт +10, монеты +5\n"
-        f"Событие: {event}{level_up_line}",
-        reply_markup=travel_menu_keyboard(),
+
+    location_name = (location or {}).get("name", "Локация")
+    spent = result or {}
+    reward_lines = [f"• ✨ Опыт: +{spent.get('exp', 0)}", f"• 🪙 Монеты: +{spent.get('currency', 0)}"]
+    if spent.get("event_exp", 0):
+        reward_lines.append(f"• ✨ Бонус опыта: +{spent['event_exp']}")
+    if spent.get("event_currency", 0):
+        reward_lines.append(f"• 🪙 Бонус монет: +{spent['event_currency']}")
+
+    item_map = {
+        "food": "🍎 Яблоко",
+        "forest_honey": "🍯 Лесной мёд",
+        "strength_scroll": "📜 Свиток силы",
+        "agility_scroll": "📜 Свиток ловкости",
+        "instinct_scroll": "📜 Свиток инстинкта",
+    }
+    item_lines = [f"Получено: {item_map[key]} x{value}" for key, value in spent.items() if key in item_map and isinstance(value, int)]
+    level_up_line = f"\n\n✨ Новый уровень! Енот достиг уровня {pet.get('level', 1)}." if levels_gained > 0 else ""
+    text = (
+        f"🌲 {location_name}\n\n"
+        "Енот вернулся из прогулки, весь важный и немного в листьях.\n\n"
+        "Потрачено:\n"
+        f"• ⚡ Энергия: -{spent.get('energy', 0)}\n"
+        f"• 🍽 Сытость: -{spent.get('satiety', 0)}\n"
+        f"• 🧼 Чистота: -{spent.get('cleanliness', 0)}\n\n"
+        "Награда:\n"
+        + "\n".join(reward_lines)
+        + "\n\nСобытие:\n"
+        + _localize_event((event or {}).get("id") if isinstance(event, dict) else None)
+        + ("\n" + "\n".join(item_lines) if item_lines else "")
+        + level_up_line
     )
+    await message.answer(text, reply_markup=travel_menu_keyboard(available))
 
 
 async def _buy_item_action(message: Message, item_key: str, item_label: str) -> None:
