@@ -43,12 +43,13 @@ Telegram RPG tamagotchi bot where users create a raccoon pet, care for it, train
 - `PROXY_URL` is read from environment and used only when present.
 
 
-## Admin
+## Admin (Stage 11)
 
-- Optional env: `ADMIN_IDS=123456789,987654321`
-- `/admin` — admin panel
-- `/admin_stats` — JSON storage stats
-- `/backup` — create JSON backup in `data/backups/`
+- Optional env: `ADMIN_IDS=123456789,987654321` (доступ только этим Telegram ID)
+- `/admin` — русская админ-панель с кнопками (статистика, пользователи, backup, возврат в меню)
+- `/admin_stats` — статистика JSON-хранилища
+- `/backup` — создание и отправка backup `data/users.json` из `data/backups/`
+- В панели администратора доступны просмотр пользователей, профиль/питомец, редактирование питомца, инвентарь и монеты
 
 
 ## Stage 10.3
