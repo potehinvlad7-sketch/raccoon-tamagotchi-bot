@@ -2,13 +2,27 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from keyboards import care_menu_keyboard, main_menu_keyboard, shop_menu_keyboard, training_menu_keyboard, travel_menu_keyboard
-from storage import exp_to_next_level, get_shop_items, get_user, perform_short_forest_trip, shop_purchase, touch_user_needs, train_skill, update_pet_need
+from storage import (
+    exp_to_next_level,
+    get_runaway_risk,
+    get_shop_items,
+    get_user,
+    perform_short_forest_trip,
+    shop_purchase,
+    touch_user_needs,
+    train_skill,
+    update_pet_mood,
+    update_pet_need,
+)
 
 
 router = Router()
 
 
 def _status_text(pet: dict) -> str:
+    mood = update_pet_mood(pet)
+    runaway_risk = get_runaway_risk(pet)
+    warning_line = "⚠️ Your raccoon needs more love.\n" if runaway_risk in {"medium", "high"} else ""
     inventory = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
     skills = pet.get("skills", {}) if isinstance(pet.get("skills"), dict) else {}
     travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
@@ -26,7 +40,9 @@ def _status_text(pet: dict) -> str:
         f"Level: {safe_level}\n"
         f"EXP: {safe_exp} / {need_exp}\n"
         f"Currency: {pet.get('currency', 0)}\n"
-        f"Mood: {pet.get('mood', 'normal')}\n"
+        f"Mood: {mood}\n"
+        f"Runaway risk: {runaway_risk}\n"
+        f"{warning_line}"
         f"Satiety: {pet.get('satiety', 80)}/100\n"
         f"Cleanliness: {pet.get('cleanliness', 80)}/100\n"
         f"Love: {pet.get('love', 80)}/100\n"
