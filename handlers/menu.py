@@ -1,8 +1,8 @@
 from aiogram import F, Router
 from aiogram.types import Message
 
-from keyboards import care_menu_keyboard, main_menu_keyboard, training_menu_keyboard, travel_menu_keyboard
-from storage import get_user, perform_short_forest_trip, touch_user_needs, train_skill, update_pet_need
+from keyboards import care_menu_keyboard, main_menu_keyboard, shop_menu_keyboard, training_menu_keyboard, travel_menu_keyboard
+from storage import get_shop_items, get_user, perform_short_forest_trip, shop_purchase, touch_user_needs, train_skill, update_pet_need
 
 
 router = Router()
@@ -91,6 +91,13 @@ async def travel_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
     await message.answer("Choose travel:", reply_markup=travel_menu_keyboard())
+
+
+@router.message(F.text == "Shop")
+async def shop_menu(message: Message) -> None:
+    if message.from_user is not None:
+        touch_user_needs(message.from_user.id)
+    await message.answer("Choose an item to buy:", reply_markup=shop_menu_keyboard())
 
 
 @router.message(F.text == "Back to main menu")
@@ -241,3 +248,51 @@ async def short_forest_trip(message: Message) -> None:
         f"{_status_text(pet)}",
         reply_markup=travel_menu_keyboard(),
     )
+
+
+async def _buy_item_action(message: Message, item_key: str, item_label: str) -> None:
+    if message.from_user is None:
+        return
+
+    prices = get_shop_items()
+    price = prices.get(item_key, 0)
+    success, _, balance, count, user = shop_purchase(message.from_user.id, item_key)
+
+    if not success:
+        await message.answer(
+            f"Not enough currency for {item_label}. Price: {price}. Your balance: {balance}.",
+            reply_markup=shop_menu_keyboard(),
+        )
+        return
+
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("Purchase completed.", reply_markup=shop_menu_keyboard())
+        return
+
+    await message.answer(
+        f"Bought {item_label} for {price} currency!\n"
+        f"Balance: {balance}\n"
+        f"{item_label} in inventory: {count}",
+        reply_markup=shop_menu_keyboard(),
+    )
+
+
+@router.message(F.text == "Buy Food")
+async def buy_food(message: Message) -> None:
+    await _buy_item_action(message, "food", "Food")
+
+
+@router.message(F.text == "Buy Soap")
+async def buy_soap(message: Message) -> None:
+    await _buy_item_action(message, "soap", "Soap")
+
+
+@router.message(F.text == "Buy Toy")
+async def buy_toy(message: Message) -> None:
+    await _buy_item_action(message, "toy", "Toy")
+
+
+@router.message(F.text == "Buy Energy Potion")
+async def buy_energy_potion(message: Message) -> None:
+    await _buy_item_action(message, "energy_potion", "Energy potion")
