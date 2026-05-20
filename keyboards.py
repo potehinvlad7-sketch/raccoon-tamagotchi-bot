@@ -15,6 +15,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="Status"), KeyboardButton(text="Care")],
             [KeyboardButton(text="Training"), KeyboardButton(text="Travel")],
+            [KeyboardButton(text="Shop")],
             [KeyboardButton(text="My Raccoon"), KeyboardButton(text="Help")],
         ],
         resize_keyboard=True,
@@ -47,6 +48,17 @@ def training_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="Train Strength"), KeyboardButton(text="Train Agility")],
             [KeyboardButton(text="Train Instinct")],
+            [KeyboardButton(text="Back to main menu")],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def shop_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Buy Food"), KeyboardButton(text="Buy Soap")],
+            [KeyboardButton(text="Buy Toy"), KeyboardButton(text="Buy Energy Potion")],
             [KeyboardButton(text="Back to main menu")],
         ],
         resize_keyboard=True,

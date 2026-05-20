@@ -31,6 +31,12 @@ DEFAULT_TRAVEL = {
     "last_event": None,
 }
 NEEDS_TICK_MINUTES = 30
+SHOP_PRICES = {
+    "food": 5,
+    "soap": 7,
+    "toy": 8,
+    "energy_potion": 12,
+}
 
 
 def utc_now() -> datetime:
@@ -241,6 +247,66 @@ def consume_inventory_item(pet: dict[str, Any], item: str) -> bool:
 
     inventory[item] = count - 1
     return True
+
+
+def get_shop_items() -> dict[str, int]:
+    return SHOP_PRICES.copy()
+
+
+def can_afford(currency: int, price: int) -> bool:
+    return currency >= price
+
+
+def add_inventory_item(pet: dict[str, Any], item: str, amount: int = 1) -> int:
+    inventory = pet.get("inventory")
+    if not isinstance(inventory, dict):
+        pet["inventory"] = DEFAULT_INVENTORY.copy()
+        inventory = pet["inventory"]
+
+    current = inventory.get(item, 0)
+    current_count = current if isinstance(current, int) and current >= 0 else 0
+    inventory[item] = current_count + amount
+    return inventory[item]
+
+
+def buy_item(user_data: dict[str, Any], item_key: str) -> tuple[bool, int, int]:
+    user_data, _ = ensure_pet_defaults(user_data)
+    recalculate_needs(user_data)
+    pet = user_data.get("pet")
+    if not isinstance(pet, dict):
+        return False, 0, 0
+
+    price = SHOP_PRICES.get(item_key)
+    if not isinstance(price, int):
+        return False, 0, 0
+
+    currency = pet.get("currency", 0)
+    currency_value = currency if isinstance(currency, int) and currency >= 0 else 0
+    pet["currency"] = currency_value
+
+    if not can_afford(currency_value, price):
+        count = int(pet.get("inventory", {}).get(item_key, 0)) if isinstance(pet.get("inventory"), dict) else 0
+        return False, currency_value, count
+
+    pet["currency"] = currency_value - price
+    new_count = add_inventory_item(pet, item_key, amount=1)
+    pet["updated_at"] = utc_now().isoformat()
+    return True, pet["currency"], new_count
+
+
+def shop_purchase(user_id: int, item_key: str) -> tuple[bool, int, int, int, dict[str, Any] | None]:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False, 0, 0, 0, None
+
+    items = get_shop_items()
+    price = items.get(item_key, 0)
+    success, balance, count = buy_item(user, item_key)
+
+    users[str(user_id)] = user
+    save_users(users)
+    return success, price, balance, count, user
 
 
 def update_pet_need(user_id: int, need: str, amount: int, inventory_item: str) -> bool:
