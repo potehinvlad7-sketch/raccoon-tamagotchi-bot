@@ -39,6 +39,36 @@ SHOP_PRICES = {
 }
 
 
+def update_pet_mood(pet: dict[str, Any]) -> str:
+    satiety = int(pet.get("satiety", DEFAULT_NEEDS["satiety"]))
+    cleanliness = int(pet.get("cleanliness", DEFAULT_NEEDS["cleanliness"]))
+    love = int(pet.get("love", DEFAULT_NEEDS["love"]))
+    energy = int(pet.get("energy", DEFAULT_NEEDS["energy"]))
+
+    if satiety < 20 or cleanliness < 20 or love < 20:
+        mood = "distressed"
+    elif satiety < 40 or cleanliness < 40 or love < 40 or energy < 20:
+        mood = "tired"
+    elif satiety >= 80 and cleanliness >= 80 and love >= 80 and energy >= 60:
+        mood = "happy"
+    else:
+        mood = "normal"
+
+    pet["mood"] = mood
+    return mood
+
+
+def get_runaway_risk(pet: dict[str, Any]) -> str:
+    love = int(pet.get("love", DEFAULT_NEEDS["love"]))
+    if love < 15:
+        return "high"
+    if love < 30:
+        return "medium"
+    if love < 45:
+        return "low"
+    return "none"
+
+
 def utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -127,6 +157,9 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
     if parse_datetime(pet.get("last_needs_update_at")) is None:
         pet["last_needs_update_at"] = updated_at.isoformat()
         changed = True
+    if not isinstance(pet.get("mood"), str):
+        pet["mood"] = "normal"
+        changed = True
 
     return user_data, changed
 
@@ -157,9 +190,11 @@ def recalculate_needs(user_data: dict[str, Any]) -> bool:
     tick_seconds = NEEDS_TICK_MINUTES * 60
     ticks = int(elapsed.total_seconds() // tick_seconds)
     if ticks <= 0:
+        update_pet_mood(pet)
         return changed
 
     apply_elapsed_need_ticks(pet, ticks)
+    update_pet_mood(pet)
     pet["last_needs_update_at"] = (last_update + timedelta(seconds=ticks * tick_seconds)).isoformat()
     return True
 
@@ -341,6 +376,7 @@ def update_pet_need(user_id: int, need: str, amount: int, inventory_item: str) -
         current_value = 0
 
     pet[need] = clamp_need(current_value + amount)
+    update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
     save_users(users)
@@ -415,6 +451,7 @@ def train_skill(user_id: int, skill_name: str) -> tuple[bool, int, dict[str, Any
     skills[skill_name] = skill_value + 1
     pet["energy"] = clamp_need(int(pet.get("energy", 0)) - 15)
     levels_gained = add_exp(pet, 5)
+    update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
     save_users(users)
@@ -503,6 +540,7 @@ def perform_short_forest_trip(user_id: int) -> tuple[bool, int, list[str], dict[
     pet["satiety"] = clamp_need(int(pet.get("satiety", 0)))
     pet["energy"] = clamp_need(int(pet.get("energy", 0)))
     pet["love"] = clamp_need(int(pet.get("love", 0)))
+    update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
 
     users[str(user_id)] = user
