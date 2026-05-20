@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,23 @@ DEFAULT_INVENTORY = {
     "toy": 2,
     "energy_potion": 1,
 }
+NEEDS_TICK_MINUTES = 30
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def parse_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _ensure_storage_file() -> None:
@@ -53,7 +70,50 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
                 inventory[item] = default
                 changed = True
 
+    updated_at = parse_datetime(pet.get("updated_at"))
+    if updated_at is None:
+        updated_at = utc_now()
+        pet["updated_at"] = updated_at.isoformat()
+        changed = True
+
+    if parse_datetime(pet.get("last_needs_update_at")) is None:
+        pet["last_needs_update_at"] = updated_at.isoformat()
+        changed = True
+
     return user_data, changed
+
+
+def apply_elapsed_need_ticks(pet: dict[str, Any], ticks: int) -> None:
+    if ticks <= 0:
+        return
+    pet["satiety"] = clamp_need(int(pet.get("satiety", 0)) - (2 * ticks))
+    pet["cleanliness"] = clamp_need(int(pet.get("cleanliness", 0)) - (1 * ticks))
+    pet["love"] = clamp_need(int(pet.get("love", 0)) - (1 * ticks))
+    pet["energy"] = clamp_need(int(pet.get("energy", 0)) + (3 * ticks))
+
+
+def recalculate_needs(user_data: dict[str, Any]) -> bool:
+    user_data, changed = ensure_pet_defaults(user_data)
+    pet = user_data.get("pet")
+    if not isinstance(pet, dict):
+        return changed
+
+    last_update = parse_datetime(pet.get("last_needs_update_at"))
+    if last_update is None:
+        last_update = utc_now()
+        pet["last_needs_update_at"] = last_update.isoformat()
+        return True
+
+    now = utc_now()
+    elapsed = now - last_update
+    tick_seconds = NEEDS_TICK_MINUTES * 60
+    ticks = int(elapsed.total_seconds() // tick_seconds)
+    if ticks <= 0:
+        return changed
+
+    apply_elapsed_need_ticks(pet, ticks)
+    pet["last_needs_update_at"] = (last_update + timedelta(seconds=ticks * tick_seconds)).isoformat()
+    return True
 
 
 def load_users() -> dict[str, Any]:
@@ -93,6 +153,19 @@ def get_user(user_id: int) -> dict[str, Any] | None:
     return user
 
 
+def touch_user_needs(user_id: int) -> dict[str, Any] | None:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return None
+
+    needs_changed = recalculate_needs(user)
+    if needs_changed:
+        users[str(user_id)] = user
+        save_users(users)
+    return user
+
+
 def has_pet(user_id: int) -> bool:
     user = get_user(user_id)
     return bool(user and isinstance(user.get("pet"), dict))
@@ -100,7 +173,7 @@ def has_pet(user_id: int) -> bool:
 
 def create_pet(user_id: int, name: str, gender: str) -> dict[str, Any]:
     users = load_users()
-    now = datetime.now(UTC).isoformat()
+    now = utc_now().isoformat()
     users[str(user_id)] = {
         "pet": {
             "name": name,
@@ -116,6 +189,7 @@ def create_pet(user_id: int, name: str, gender: str) -> dict[str, Any]:
             "inventory": DEFAULT_INVENTORY.copy(),
             "created_at": now,
             "updated_at": now,
+            "last_needs_update_at": now,
         }
     }
     save_users(users)
@@ -141,7 +215,7 @@ def update_pet_need(user_id: int, need: str, amount: int, inventory_item: str) -
     if not isinstance(user, dict):
         return False
 
-    user, changed = ensure_pet_defaults(user)
+    changed = recalculate_needs(user)
     pet = user.get("pet")
     if not isinstance(pet, dict):
         return False
@@ -157,7 +231,7 @@ def update_pet_need(user_id: int, need: str, amount: int, inventory_item: str) -
         current_value = 0
 
     pet[need] = clamp_need(current_value + amount)
-    pet["updated_at"] = datetime.now(UTC).isoformat()
+    pet["updated_at"] = utc_now().isoformat()
     users[str(user_id)] = user
     save_users(users)
     return True

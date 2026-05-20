@@ -2,7 +2,7 @@ from aiogram import F, Router
 from aiogram.types import Message
 
 from keyboards import care_menu_keyboard, main_menu_keyboard
-from storage import get_user, update_pet_need
+from storage import get_user, touch_user_needs, update_pet_need
 
 
 router = Router()
@@ -22,6 +22,7 @@ def _status_text(pet: dict) -> str:
         f"Cleanliness: {pet.get('cleanliness', 80)}/100\n"
         f"Love: {pet.get('love', 80)}/100\n"
         f"Energy: {pet.get('energy', 80)}/100\n\n"
+        "Needs update automatically over elapsed time.\n\n"
         "🎒 Inventory\n"
         f"Food: {inventory.get('food', 0)}\n"
         f"Soap: {inventory.get('soap', 0)}\n"
@@ -36,6 +37,7 @@ async def show_status(message: Message) -> None:
         return
 
     user = get_user(message.from_user.id)
+    user = touch_user_needs(message.from_user.id) or user
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
 
     if not isinstance(pet, dict):
@@ -62,11 +64,15 @@ async def show_help(message: Message) -> None:
 
 @router.message(F.text == "Care")
 async def care_menu(message: Message) -> None:
+    if message.from_user is not None:
+        touch_user_needs(message.from_user.id)
     await message.answer("Choose a care action:", reply_markup=care_menu_keyboard())
 
 
 @router.message(F.text == "Back to main menu")
 async def back_to_main(message: Message) -> None:
+    if message.from_user is not None:
+        touch_user_needs(message.from_user.id)
     await message.answer("Main menu:", reply_markup=main_menu_keyboard())
 
 

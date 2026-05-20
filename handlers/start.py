@@ -5,7 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from keyboards import gender_keyboard, main_menu_keyboard
-from storage import create_pet, has_pet
+from storage import create_pet, has_pet, touch_user_needs
 
 
 router = Router()
@@ -22,6 +22,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         return
 
     if has_pet(message.from_user.id):
+        touch_user_needs(message.from_user.id)
         await state.clear()
         await message.answer("Welcome back! Main menu:", reply_markup=main_menu_keyboard())
         return
