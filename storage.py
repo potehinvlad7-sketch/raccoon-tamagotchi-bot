@@ -546,3 +546,48 @@ def perform_short_forest_trip(user_id: int) -> tuple[bool, int, list[str], dict[
     users[str(user_id)] = user
     save_users(users)
     return True, levels_gained, [], user
+
+
+def get_storage_stats() -> dict[str, float | int | str]:
+    users = load_users()
+    total_users = len(users)
+    users_with_pet = 0
+    total_pets = 0
+    levels_sum = 0
+
+    for user_data in users.values():
+        if not isinstance(user_data, dict):
+            continue
+        pet = user_data.get("pet")
+        if not isinstance(pet, dict):
+            continue
+
+        users_with_pet += 1
+        total_pets += 1
+        level = pet.get("level", 1)
+        safe_level = level if isinstance(level, int) and level > 0 else 1
+        levels_sum += safe_level
+
+    average_level = (levels_sum / total_pets) if total_pets else 0.0
+    return {
+        "total_users": total_users,
+        "users_with_pet": users_with_pet,
+        "total_pets": total_pets,
+        "average_level": round(average_level, 1),
+        "storage_path": str(USERS_FILE),
+    }
+
+
+def create_users_backup() -> tuple[bool, str]:
+    _ensure_storage_file()
+    backups_dir = DATA_DIR / "backups"
+    backups_dir.mkdir(parents=True, exist_ok=True)
+
+    source = USERS_FILE
+    if not source.exists():
+        return False, "Файл хранилища не найден."
+
+    timestamp = utc_now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backups_dir / f"users_{timestamp}.json"
+    backup_path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    return True, str(backup_path)
