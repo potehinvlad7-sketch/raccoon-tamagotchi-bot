@@ -9,6 +9,8 @@ BTN_INVENTORY = "🎒 Инвентарь"
 BTN_MY_RACCOON = "🦝 Мой енот"
 BTN_HELP = "❔ Помощь"
 BTN_BACK = "⬅️ В главное меню"
+BTN_BATTLE_ATTACK = "⚔️ Атаковать"
+BTN_BATTLE_RUN = "🏃 Сбежать"
 
 BTN_GENDER_MALE = "♂️ Мальчик"
 BTN_GENDER_FEMALE = "♀️ Девочка"
@@ -81,6 +83,16 @@ def travel_menu_keyboard(buttons: list[str]) -> ReplyKeyboardMarkup:
         rows.append([KeyboardButton(text=item) for item in chunk])
     rows.append([KeyboardButton(text=BTN_BACK)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+def battle_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_BATTLE_ATTACK), KeyboardButton(text=BTN_BATTLE_RUN)],
+            [KeyboardButton(text=BTN_BACK)],
+        ],
+        resize_keyboard=True,
+    )
 
 
 def care_menu_keyboard() -> ReplyKeyboardMarkup:
