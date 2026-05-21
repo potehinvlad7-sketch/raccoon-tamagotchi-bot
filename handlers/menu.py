@@ -1,8 +1,11 @@
+import random
+
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError
 
 from keyboards import (
     BTN_BACK,
@@ -24,6 +27,7 @@ from keyboards import (
     BTN_INVENTORY,
     BTN_CANCEL,
     BTN_CONTACT_ADMIN,
+    BTN_LETTER_TO_RACCOON,
     BTN_MY_RACCOON,
     BTN_SHOP,
     BTN_SHOP_BACK,
@@ -82,6 +86,11 @@ TRAVEL_EVENT_MAP = {
 }
 
 TRAVEL_BUTTON_TO_ID = {value["button"]: key for key, value in TRAVEL_LOCATIONS.items()}
+GROUP_FLAVOR_LINES = [
+    "🦝 {name} гордо показывает найденный листочек.",
+    "🌿 {name} выглядит немного уставшим после путешествий.",
+    "✨ {name} внимательно смотрит по сторонам.",
+]
 SKILL_LABELS = {"strength": "💪 Сила", "agility": "💨 Ловкость", "instinct": "🌙 Инстинкт"}
 SCROLL_LABELS = {
     "strength_scroll": "📜 Свиток силы",
@@ -217,6 +226,29 @@ def _raccoon_profile_text(pet: dict) -> str:
     )
 
 
+def _group_raccoon_profile_text(pet: dict) -> str:
+    mood = _localize_mood(update_pet_mood(pet))
+    level = pet.get("level", 1)
+    safe_level = level if isinstance(level, int) and level > 0 else 1
+    exp = pet.get("exp", 0)
+    safe_exp = exp if isinstance(exp, int) and exp >= 0 else 0
+    max_needs = get_pet_max_needs(pet)
+    name = str(pet.get("name", "Енот"))
+    base = (
+        f"🦝 {name}\n\n"
+        f"⭐ Уровень: {safe_level}\n"
+        f"✨ Опыт: {safe_exp} / {exp_to_next_level(safe_level)}\n\n"
+        f"🍖 Сытость: {pet.get('satiety', 0)}/{max_needs['satiety']}\n"
+        f"🧼 Чистота: {pet.get('cleanliness', 0)}/{max_needs['cleanliness']}\n"
+        f"❤️ Любовь: {pet.get('love', 0)}/{max_needs['love']}\n"
+        f"⚡ Энергия: {pet.get('energy', 0)}/{max_needs['energy']}\n\n"
+        f"😊 Настроение: {mood}"
+    )
+    if random.random() < 0.5:
+        return f"{base}\n\n{random.choice(GROUP_FLAVOR_LINES).format(name=name)}"
+    return base
+
+
 def _inventory_text(pet: dict) -> str:
     inventory = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
     return (
@@ -309,6 +341,18 @@ async def show_raccoon(message: Message) -> None:
     await message.answer(_raccoon_profile_text(pet), reply_markup=main_menu_keyboard())
 
 
+@router.message(Command("мой_енот"))
+async def show_raccoon_group_command(message: Message) -> None:
+    if message.from_user is None:
+        return
+    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("У вас пока нет енотика.")
+        return
+    await message.answer(_group_raccoon_profile_text(pet))
+
+
 @router.message(F.text == BTN_INVENTORY)
 async def show_inventory(message: Message) -> None:
     if message.from_user is None:
@@ -335,12 +379,11 @@ async def show_help(message: Message) -> None:
     )
 
 
-@router.message(F.text == BTN_CONTACT_ADMIN)
+@router.message(F.text.in_({BTN_CONTACT_ADMIN, BTN_LETTER_TO_RACCOON}))
 async def contact_admin_entry(message: Message, state: FSMContext) -> None:
     await state.set_state(AdminMessageState.waiting_for_admin_message)
     await message.answer(
-        "✉️ Напишите сообщение для администрации.\n"
-        "Оно будет отправлено администраторам бота.\n\n"
+        "💌 Напишите свое анонимное желание, и ваш енотик передаст его ArtRaccoon)))\n\n"
         "Для отмены нажмите:\n"
         "❌ Отмена",
         reply_markup=cancel_keyboard(),
@@ -350,7 +393,7 @@ async def contact_admin_entry(message: Message, state: FSMContext) -> None:
 @router.message(AdminMessageState.waiting_for_admin_message, F.text == BTN_CANCEL)
 async def contact_admin_cancel(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer("Отправка сообщения отменена.", reply_markup=main_menu_keyboard())
+    await message.answer("Отправка письма отменена.", reply_markup=main_menu_keyboard())
 
 
 @router.message(AdminMessageState.waiting_for_admin_message, F.text)
@@ -364,28 +407,28 @@ async def contact_admin_send(message: Message, state: FSMContext) -> None:
 
     user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
-    pet_name = str(pet.get("name", "-")) if isinstance(pet, dict) else "-"
+    pet_name = str(pet.get("name", "без питомца")) if isinstance(pet, dict) else "без питомца"
     pet_level = int(pet.get("level", 1)) if isinstance(pet, dict) and isinstance(pet.get("level", 1), int) else 1
     username = f"@{message.from_user.username}" if message.from_user.username else "без username"
     sender_text = (
-        "📨 Новое сообщение администрации\n\n"
+        "💌 Енотик принес новое письмо\n\n"
         "👤 Пользователь:\n"
         f"• ID: {message.from_user.id}\n"
         f"• Username: {username}\n"
         f"• Имя питомца: {pet_name}\n"
         f"• Уровень: {pet_level}"
     )
-    message_text = f"💬 Сообщение:\n\n{message.text}"
+    message_text = f"💬 Письмо:\n\n{message.text}"
 
     for admin_id in ADMIN_IDS:
         try:
             await message.bot.send_message(admin_id, sender_text)
             await message.bot.send_message(admin_id, message_text)
-        except TelegramBadRequest:
+        except TelegramAPIError:
             continue
 
     await state.clear()
-    await message.answer("✅ Сообщение отправлено администрации.", reply_markup=main_menu_keyboard())
+    await message.answer("✨ Ваш енотик убежал доставлять письмо ArtRaccoon.", reply_markup=main_menu_keyboard())
 
 
 @router.message(AdminMessageState.waiting_for_admin_message)
