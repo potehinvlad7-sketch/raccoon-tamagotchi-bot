@@ -5,7 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from keyboards import BTN_GENDER_FEMALE, BTN_GENDER_MALE, gender_keyboard, main_menu_keyboard
-from storage import create_pet, has_pet, touch_user_needs
+from storage import create_pet, has_pet, refresh_user_metadata, touch_user_needs
 
 
 router = Router()
@@ -26,6 +26,8 @@ GENDER_TEXT_TO_INTERNAL = {
 async def cmd_start(message: Message, state: FSMContext) -> None:
     if message.from_user is None:
         return
+
+    refresh_user_metadata(message.from_user.id, message.from_user)
 
     if has_pet(message.from_user.id):
         touch_user_needs(message.from_user.id)
@@ -69,6 +71,7 @@ async def enter_name(message: Message, state: FSMContext) -> None:
         await message.answer("Давай снова выберем пол питомца:", reply_markup=gender_keyboard())
         return
 
+    refresh_user_metadata(message.from_user.id, message.from_user)
     create_pet(message.from_user.id, name=name, gender=gender)
     await state.clear()
 
