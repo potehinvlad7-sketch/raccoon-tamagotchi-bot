@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import Message
 
 from keyboards import (
     BTN_BACK,
@@ -21,6 +21,7 @@ from keyboards import (
     BTN_INVENTORY,
     BTN_MY_RACCOON,
     BTN_SHOP,
+    BTN_SHOP_BACK,
     BTN_STATUS,
     BTN_TRAIN_AGILITY,
     BTN_TRAIN_INSTINCT,
@@ -30,8 +31,7 @@ from keyboards import (
     battle_menu_keyboard,
     care_menu_keyboard,
     main_menu_keyboard,
-    shop_categories_inline_keyboard,
-    shop_items_inline_keyboard,
+    build_shop_keyboard,
     training_menu_keyboard,
     TRAVEL_LOCATIONS,
     travel_menu_keyboard,
@@ -44,7 +44,6 @@ from storage import (
     get_runaway_risk,
     get_item_catalog,
     get_shop_categories,
-    get_shop_item,
     get_shop_items_by_category,
     get_user,
     get_travel_event,
@@ -52,7 +51,6 @@ from storage import (
     perform_travel,
     resolve_battle_attack,
     resolve_battle_run,
-    shop_purchase,
     touch_user_needs,
     train_skill,
     update_pet_mood,
@@ -88,6 +86,17 @@ ITEM_LABELS = {
     "agility_scroll": "📜 Свиток ловкости",
     "instinct_scroll": "📜 Свиток инстинкта",
 }
+SHOP_CATEGORY_TO_BUTTON = {
+    "food": "🍖 Еда",
+    "household": "🧺 Быт",
+    "toys": "🧸 Игрушки",
+    "potions": "🧪 Зелья",
+    "weapons": "🗡️ Оружие",
+    "armor": "🛡️ Броня",
+    "accessories": "💍 Аксессуары",
+    "materials": "🪵 Материалы",
+}
+SHOP_BUTTON_TO_CATEGORY = {label: category_id for category_id, label in SHOP_CATEGORY_TO_BUTTON.items()}
 
 
 def get_enemy_name(enemy_id: str) -> str:
@@ -395,12 +404,18 @@ async def travel_menu(message: Message) -> None:
 async def shop_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    categories = list(get_shop_categories().values())
-    await message.answer("🛒 Магазин\n\nВыбери раздел — покажу товары в один клик.", reply_markup=shop_categories_inline_keyboard(categories))
+    await message.answer("🛒 Магазин", reply_markup=build_shop_keyboard())
 
 
 @router.message(F.text == BTN_BACK)
 async def back_to_main(message: Message) -> None:
+    if message.from_user is not None:
+        touch_user_needs(message.from_user.id)
+    await message.answer("Главное меню:", reply_markup=main_menu_keyboard())
+
+
+@router.message(F.text == BTN_SHOP_BACK)
+async def back_from_shop(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
     await message.answer("Главное меню:", reply_markup=main_menu_keyboard())
@@ -629,75 +644,23 @@ async def battle_run(message: Message) -> None:
 def _shop_category_text(category: dict, items: list[dict]) -> str:
     items_count = len(items)
     suffix = "" if items_count == 1 else "а" if 2 <= items_count <= 4 else "ов"
+    lines = [f"• {item.get('name', 'Предмет')} — {item.get('price', 0)} 🪙" for item in items]
+    item_list = "\n".join(lines) if lines else "Пока нет доступных товаров."
     return (
         f"{category.get('emoji', '🛒')} {category.get('title', 'Категория')}\n\n"
         f"{category.get('description', '')}\n\n"
-        f"Товар{suffix}: {items_count}. Выбери предмет кнопкой ниже."
+        f"Товар{suffix}: {items_count}\n\n"
+        f"{item_list}"
     )
 
-
-async def _buy_item_action(callback: CallbackQuery, item_key: str) -> None:
-    if callback.from_user is None or callback.message is None:
+@router.message(F.text.in_(set(SHOP_BUTTON_TO_CATEGORY.keys())))
+async def shop_open_category(message: Message) -> None:
+    category_id = SHOP_BUTTON_TO_CATEGORY.get(message.text or "")
+    if not category_id:
         return
-    item = get_shop_item(item_key)
-    if not isinstance(item, dict):
-        await callback.answer("Предмет не найден.", show_alert=True)
-        return
-    success, _, balance, count, _ = shop_purchase(callback.from_user.id, item_key)
-    category_id = str(item.get("category", ""))
-    category = get_shop_categories().get(category_id, {})
-    category_items = get_shop_items_by_category(category_id)
-    if not success:
-        await callback.answer("Не хватает монет.", show_alert=True)
-        await callback.message.edit_text(
-            _shop_category_text(category, category_items) + f"\n\n❌ Недостаточно монет.\nЦена: {item.get('price', 0)}\nБаланс: {balance}",
-            reply_markup=shop_items_inline_keyboard(category_id, category_items),
-        )
-        return
-    await callback.answer("Покупка успешна!")
-    await callback.message.edit_text(
-        _shop_category_text(category, category_items)
-        + "\n\n✅ Покупка успешна!\n"
-        + f"Предмет: {item.get('name', 'Предмет')}\nМонет осталось: {balance}\nТеперь в инвентаре: {count}",
-        reply_markup=shop_items_inline_keyboard(category_id, category_items),
-    )
-
-@router.callback_query(F.data.startswith("shop:category:"))
-async def shop_open_category(callback: CallbackQuery) -> None:
-    if callback.data is None or callback.message is None:
-        return
-    category_id = callback.data.split(":", 2)[2]
     category = get_shop_categories().get(category_id)
     if not isinstance(category, dict):
-        await callback.answer("Категория недоступна.", show_alert=True)
+        await message.answer("Категория недоступна.", reply_markup=build_shop_keyboard())
         return
     items = get_shop_items_by_category(category_id)
-    await callback.message.edit_text(_shop_category_text(category, items), reply_markup=shop_items_inline_keyboard(category_id, items))
-    await callback.answer()
-
-
-@router.callback_query(F.data == "shop:back:categories")
-async def shop_back_categories(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    categories = list(get_shop_categories().values())
-    await callback.message.edit_text("🛒 Магазин\n\nВыбери раздел — покажу товары в один клик.", reply_markup=shop_categories_inline_keyboard(categories))
-    await callback.answer()
-
-
-
-
-@router.callback_query(F.data == "shop:back:main")
-async def shop_back_main(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await callback.message.edit_text("🏠 Возвращаю в главное меню.", reply_markup=None)
-    await callback.message.answer("Главное меню:", reply_markup=main_menu_keyboard())
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("shop:buy:"))
-async def shop_buy_item(callback: CallbackQuery) -> None:
-    if callback.data is None:
-        return
-    item_id = callback.data.split(":", 2)[2]
-    await _buy_item_action(callback, item_id)
+    await message.answer(_shop_category_text(category, items), reply_markup=build_shop_keyboard())

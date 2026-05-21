@@ -1,5 +1,6 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+from storage import get_shop_categories
 
 BTN_STATUS = "📊 Статус"
 BTN_CARE = "🧼 Уход"
@@ -10,6 +11,7 @@ BTN_INVENTORY = "🎒 Инвентарь"
 BTN_MY_RACCOON = "🦝 Мой енот"
 BTN_HELP = "❔ Помощь"
 BTN_BACK = "⬅️ В главное меню"
+BTN_SHOP_BACK = "⬅️ Назад"
 BTN_BATTLE_ATTACK = "⚔️ Атаковать"
 BTN_BATTLE_RUN = "🏃 Сбежать"
 
@@ -107,23 +109,11 @@ def training_menu_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def shop_categories_inline_keyboard(categories: list[dict]) -> object:
-    builder = InlineKeyboardBuilder()
-    for category in categories:
-        builder.button(
-            text=f"{category.get('emoji', '🛒')} {category.get('title', 'Категория')}",
-            callback_data=f"shop:category:{category.get('id', '')}",
-        )
-    builder.button(text="⬅️ Назад", callback_data="shop:back:main")
-    builder.adjust(2, 1)
-    return builder.as_markup()
-
-
-def shop_items_inline_keyboard(category_id: str, items: list[dict]) -> object:
-    builder = InlineKeyboardBuilder()
-    for item in items:
-        builder.button(text=f"{item.get('name', 'Предмет')} — {item.get('price', 0)} 🪙", callback_data=f"shop:buy:{item.get('id', '')}")
-    builder.button(text="⬅️ Категории", callback_data="shop:back:categories")
-    builder.button(text="🏠 Главное меню", callback_data="shop:back:main")
-    builder.adjust(1, 1, 1)
-    return builder.as_markup()
+def build_shop_keyboard() -> ReplyKeyboardMarkup:
+    categories = list(get_shop_categories().values())
+    rows: list[list[KeyboardButton]] = []
+    for idx in range(0, len(categories), 2):
+        chunk = categories[idx:idx + 2]
+        rows.append([KeyboardButton(text=f"{category.get('emoji', '🛒')} {category.get('title', 'Категория')}") for category in chunk])
+    rows.append([KeyboardButton(text=BTN_SHOP_BACK)])
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
