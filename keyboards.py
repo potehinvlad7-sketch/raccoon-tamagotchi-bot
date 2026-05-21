@@ -64,8 +64,9 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=BTN_STATUS), KeyboardButton(text=BTN_CARE)],
             [KeyboardButton(text=BTN_TRAINING), KeyboardButton(text=BTN_TRAVEL)],
             [KeyboardButton(text=BTN_SHOP), KeyboardButton(text=BTN_INVENTORY)],
-            [KeyboardButton(text=BTN_MY_RACCOON), KeyboardButton(text=BTN_CONTACT_ADMIN)],
+            [KeyboardButton(text=BTN_MY_RACCOON)],
             [KeyboardButton(text=BTN_HELP)],
+            [KeyboardButton(text=BTN_LETTER_TO_RACCOON)],
         ],
         resize_keyboard=True,
     )
