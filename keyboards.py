@@ -114,14 +114,16 @@ def shop_categories_inline_keyboard(categories: list[dict]) -> object:
             text=f"{category.get('emoji', '🛒')} {category.get('title', 'Категория')}",
             callback_data=f"shop:category:{category.get('id', '')}",
         )
-    builder.adjust(2)
+    builder.button(text="⬅️ Назад", callback_data="shop:back:main")
+    builder.adjust(2, 1)
     return builder.as_markup()
 
 
 def shop_items_inline_keyboard(category_id: str, items: list[dict]) -> object:
     builder = InlineKeyboardBuilder()
     for item in items:
-        builder.button(text=f"{item.get('name', 'Предмет')} — {item.get('price', 0)}", callback_data=f"shop:buy:{item.get('id', '')}")
-    builder.button(text="⬅️ К категориям", callback_data="shop:back:categories")
-    builder.adjust(1)
+        builder.button(text=f"{item.get('name', 'Предмет')} — {item.get('price', 0)} 🪙", callback_data=f"shop:buy:{item.get('id', '')}")
+    builder.button(text="⬅️ Категории", callback_data="shop:back:categories")
+    builder.button(text="🏠 Главное меню", callback_data="shop:back:main")
+    builder.adjust(1, 1, 1)
     return builder.as_markup()
