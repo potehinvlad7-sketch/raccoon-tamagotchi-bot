@@ -119,6 +119,31 @@ ITEM_CATALOG = {
     "big_energy_potion": {"name": "Большое зелье энергии", "emoji": "🔋", "category": "energy", "need": "energy", "restore": 100, "price": 25},
 }
 
+SHOP_CATEGORIES = {
+    "food": {"id": "food", "title": "Еда", "emoji": "🍖", "description": "Что-то вкусное для голодного енота."},
+    "household": {"id": "household", "title": "Быт", "emoji": "🧺", "description": "Полезные вещи для чистоты и уюта."},
+    "toys": {"id": "toys", "title": "Игрушки", "emoji": "🧸", "description": "Предметы для игр и хорошего настроения."},
+    "potions": {"id": "potions", "title": "Зелья", "emoji": "🧪", "description": "Зелья для восстановления сил."},
+    "weapons": {"id": "weapons", "title": "Оружие", "emoji": "🗡️", "description": "Будущий раздел боевого снаряжения."},
+    "armor": {"id": "armor", "title": "Броня", "emoji": "🛡️", "description": "Будущий раздел защитного снаряжения."},
+    "accessories": {"id": "accessories", "title": "Аксессуары", "emoji": "💍", "description": "Будущий раздел редких аксессуаров."},
+    "materials": {"id": "materials", "title": "Материалы", "emoji": "🪵", "description": "Будущий раздел ресурсов для крафта."},
+}
+
+SHOP_ITEMS = {
+    "food": {"id": "food", "category": "food", "name": "Яблоко", "description": "Сочное лесное яблоко.", "price": 5, "effects": {"satiety": 50}},
+    "hearty_snack": {"id": "hearty_snack", "category": "food", "name": "Сытный перекус", "description": "Плотный перекус для долгих прогулок.", "price": 12, "effects": {"satiety": 90}},
+    "forest_honey": {"id": "forest_honey", "category": "food", "name": "Лесной мёд", "description": "Сладкий мёд, найденный в чаще.", "price": 22, "effects": {"satiety": 140}},
+    "soap": {"id": "soap", "category": "household", "name": "Мыло", "description": "Помогает быстро отмыть лапки и хвост.", "price": 7, "effects": {"cleanliness": 50}},
+    "fluffy_shampoo": {"id": "fluffy_shampoo", "category": "household", "name": "Пушистый шампунь", "description": "Ароматный шампунь для идеальной шерсти.", "price": 14, "effects": {"cleanliness": 90}},
+    "comb": {"id": "comb", "category": "household", "name": "Гребень", "description": "Простой гребень для быстрой укладки.", "price": 4, "effects": {"cleanliness": 35}},
+    "toy": {"id": "toy", "category": "toys", "name": "Мячик", "description": "Любимая игрушка для весёлой игры.", "price": 8, "effects": {"love": 50}},
+    "yarn_ball": {"id": "yarn_ball", "category": "toys", "name": "Клубок", "description": "Мягкий клубок для долгих игр.", "price": 14, "effects": {"love": 80}},
+    "fun_toy": {"id": "fun_toy", "category": "toys", "name": "Забавная игрушка", "description": "Яркая игрушка, поднимающая настроение.", "price": 24, "effects": {"love": 120}},
+    "energy_potion": {"id": "energy_potion", "category": "potions", "name": "Малое зелье энергии", "description": "Быстро возвращает силы после дел.", "price": 12, "effects": {"energy": 50}},
+    "big_energy_potion": {"id": "big_energy_potion", "category": "potions", "name": "Большое зелье энергии", "description": "Мощное зелье для полного заряда.", "price": 25, "effects": {"energy": 100}},
+}
+
 
 def update_pet_mood(pet: dict[str, Any]) -> str:
     max_needs = get_pet_max_needs(pet)
@@ -409,7 +434,20 @@ def get_item_catalog() -> dict[str, dict[str, Any]]:
 
 
 def get_shop_items() -> dict[str, int]:
-    return {key: item["price"] for key, item in ITEM_CATALOG.items()}
+    return {key: item["price"] for key, item in SHOP_ITEMS.items()}
+
+
+def get_shop_categories() -> dict[str, dict[str, Any]]:
+    return {key: value.copy() for key, value in SHOP_CATEGORIES.items() if key in {"food", "household", "toys", "potions"}}
+
+
+def get_shop_items_by_category(category_id: str) -> list[dict[str, Any]]:
+    return [item.copy() for item in SHOP_ITEMS.values() if item.get("category") == category_id]
+
+
+def get_shop_item(item_id: str) -> dict[str, Any] | None:
+    item = SHOP_ITEMS.get(item_id)
+    return item.copy() if isinstance(item, dict) else None
 
 
 def can_afford(currency: int, price: int) -> bool:
@@ -435,7 +473,7 @@ def buy_item(user_data: dict[str, Any], item_key: str) -> tuple[bool, int, int]:
     if not isinstance(pet, dict):
         return False, 0, 0
 
-    price = ITEM_CATALOG.get(item_key, {}).get("price")
+    price = SHOP_ITEMS.get(item_key, {}).get("price")
     if not isinstance(price, int):
         return False, 0, 0
 

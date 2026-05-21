@@ -1,21 +1,10 @@
 from aiogram import F, Router
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 from keyboards import (
     BTN_BACK,
     BTN_BATTLE_ATTACK,
     BTN_BATTLE_RUN,
-    BTN_BUY_BIG_ENERGY,
-    BTN_BUY_COMB,
-    BTN_BUY_ENERGY,
-    BTN_BUY_FOOD,
-    BTN_BUY_FOREST_HONEY,
-    BTN_BUY_FUN_TOY,
-    BTN_BUY_HEARTY_SNACK,
-    BTN_BUY_SHAMPOO,
-    BTN_BUY_SOAP,
-    BTN_BUY_TOY,
-    BTN_BUY_YARN_BALL,
     BTN_CARE,
     BTN_CARE_APPLE,
     BTN_CARE_BALL,
@@ -41,7 +30,8 @@ from keyboards import (
     battle_menu_keyboard,
     care_menu_keyboard,
     main_menu_keyboard,
-    shop_menu_keyboard,
+    shop_categories_inline_keyboard,
+    shop_items_inline_keyboard,
     training_menu_keyboard,
     TRAVEL_LOCATIONS,
     travel_menu_keyboard,
@@ -53,7 +43,9 @@ from storage import (
     get_pet_max_needs,
     get_runaway_risk,
     get_item_catalog,
-    get_shop_items,
+    get_shop_categories,
+    get_shop_item,
+    get_shop_items_by_category,
     get_user,
     get_travel_event,
     get_travel_locations,
@@ -403,7 +395,8 @@ async def travel_menu(message: Message) -> None:
 async def shop_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("Магазин припасов 🛒", reply_markup=shop_menu_keyboard())
+    categories = list(get_shop_categories().values())
+    await message.answer("🛒 Магазин\n\nВыбери категорию:", reply_markup=shop_categories_inline_keyboard(categories))
 
 
 @router.message(F.text == BTN_BACK)
@@ -633,77 +626,68 @@ async def battle_run(message: Message) -> None:
     )
 
 
-async def _buy_item_action(message: Message, item_key: str, item_label: str) -> None:
-    if message.from_user is None:
-        return
-    prices = get_shop_items()
-    price = prices.get(item_key, 0)
-    success, _, balance, count, _ = shop_purchase(message.from_user.id, item_key)
-    if not success:
-        await message.answer(
-            f"Не хватает монет.\nЦена: {price}\nТвой баланс: {balance}",
-            reply_markup=shop_menu_keyboard(),
-        )
-        return
-    await message.answer(
-        "Покупка успешна!\n"
-        f"Предмет: {item_label}\n"
-        f"Монет осталось: {balance}\n"
-        f"Теперь в инвентаре: {count}",
-        reply_markup=shop_menu_keyboard(),
+def _shop_category_text(category: dict, items: list[dict]) -> str:
+    item_lines = [f"• {item.get('name', 'Предмет')} — {item.get('price', 0)} монет" for item in items]
+    return (
+        f"{category.get('emoji', '🛒')} {category.get('title', 'Категория')}\n\n"
+        f"{category.get('description', '')}\n\n"
+        "Доступные предметы:\n"
+        + ("\n".join(item_lines) if item_lines else "Пока пусто.")
     )
 
 
-@router.message(F.text == BTN_BUY_FOOD)
-async def buy_food(message: Message) -> None:
-    await _buy_item_action(message, "food", "Яблоко")
+async def _buy_item_action(callback: CallbackQuery, item_key: str) -> None:
+    if callback.from_user is None or callback.message is None:
+        return
+    item = get_shop_item(item_key)
+    if not isinstance(item, dict):
+        await callback.answer("Предмет не найден.", show_alert=True)
+        return
+    success, _, balance, count, _ = shop_purchase(callback.from_user.id, item_key)
+    category_id = str(item.get("category", ""))
+    category = get_shop_categories().get(category_id, {})
+    category_items = get_shop_items_by_category(category_id)
+    if not success:
+        await callback.answer("Не хватает монет.", show_alert=True)
+        await callback.message.edit_text(
+            _shop_category_text(category, category_items) + f"\n\n❌ Недостаточно монет.\nЦена: {item.get('price', 0)}\nБаланс: {balance}",
+            reply_markup=shop_items_inline_keyboard(category_id, category_items),
+        )
+        return
+    await callback.answer("Покупка успешна!")
+    await callback.message.edit_text(
+        _shop_category_text(category, category_items)
+        + "\n\n✅ Покупка успешна!\n"
+        + f"Предмет: {item.get('name', 'Предмет')}\nМонет осталось: {balance}\nТеперь в инвентаре: {count}",
+        reply_markup=shop_items_inline_keyboard(category_id, category_items),
+    )
+
+@router.callback_query(F.data.startswith("shop:category:"))
+async def shop_open_category(callback: CallbackQuery) -> None:
+    if callback.data is None or callback.message is None:
+        return
+    category_id = callback.data.split(":", 2)[2]
+    category = get_shop_categories().get(category_id)
+    if not isinstance(category, dict):
+        await callback.answer("Категория недоступна.", show_alert=True)
+        return
+    items = get_shop_items_by_category(category_id)
+    await callback.message.edit_text(_shop_category_text(category, items), reply_markup=shop_items_inline_keyboard(category_id, items))
+    await callback.answer()
 
 
-@router.message(F.text == BTN_BUY_HEARTY_SNACK)
-async def buy_hearty_snack(message: Message) -> None:
-    await _buy_item_action(message, "hearty_snack", "Сытный перекус")
+@router.callback_query(F.data == "shop:back:categories")
+async def shop_back_categories(callback: CallbackQuery) -> None:
+    if callback.message is None:
+        return
+    categories = list(get_shop_categories().values())
+    await callback.message.edit_text("🛒 Магазин\n\nВыбери категорию:", reply_markup=shop_categories_inline_keyboard(categories))
+    await callback.answer()
 
 
-@router.message(F.text == BTN_BUY_FOREST_HONEY)
-async def buy_forest_honey(message: Message) -> None:
-    await _buy_item_action(message, "forest_honey", "Лесной мёд")
-
-
-@router.message(F.text == BTN_BUY_SOAP)
-async def buy_soap(message: Message) -> None:
-    await _buy_item_action(message, "soap", "Мыло")
-
-
-@router.message(F.text == BTN_BUY_SHAMPOO)
-async def buy_shampoo(message: Message) -> None:
-    await _buy_item_action(message, "fluffy_shampoo", "Шампунь")
-
-
-@router.message(F.text == BTN_BUY_COMB)
-async def buy_comb(message: Message) -> None:
-    await _buy_item_action(message, "comb", "Гребень")
-
-
-@router.message(F.text == BTN_BUY_TOY)
-async def buy_toy(message: Message) -> None:
-    await _buy_item_action(message, "toy", "Мячик")
-
-
-@router.message(F.text == BTN_BUY_YARN_BALL)
-async def buy_yarn_ball(message: Message) -> None:
-    await _buy_item_action(message, "yarn_ball", "Клубок")
-
-
-@router.message(F.text == BTN_BUY_FUN_TOY)
-async def buy_fun_toy(message: Message) -> None:
-    await _buy_item_action(message, "fun_toy", "Игрушка")
-
-
-@router.message(F.text == BTN_BUY_ENERGY)
-async def buy_energy_potion(message: Message) -> None:
-    await _buy_item_action(message, "energy_potion", "Малое зелье")
-
-
-@router.message(F.text == BTN_BUY_BIG_ENERGY)
-async def buy_big_energy_potion(message: Message) -> None:
-    await _buy_item_action(message, "big_energy_potion", "Большое зелье")
+@router.callback_query(F.data.startswith("shop:buy:"))
+async def shop_buy_item(callback: CallbackQuery) -> None:
+    if callback.data is None:
+        return
+    item_id = callback.data.split(":", 2)[2]
+    await _buy_item_action(callback, item_id)
