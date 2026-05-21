@@ -1,4 +1,5 @@
 from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -27,6 +28,9 @@ router = Router()
 ADMIN_ONLY_TEXT = "⛔ Команда доступна только администраторам."
 USERS_PER_PAGE = 7
 
+BROADCAST_USERS_PER_PAGE = 7
+admin_broadcast_state: dict[int, dict] = {}
+
 
 def _is_admin_message(message: Message) -> bool:
     return bool(message.from_user and is_admin(message.from_user.id))
@@ -42,6 +46,7 @@ def _admin_panel_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:0")],
         [InlineKeyboardButton(text="💾 Backup JSON", callback_data="admin:backup")],
         [InlineKeyboardButton(text="🔄 Обновить пользователей", callback_data="admin:refresh_users")],
+        [InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:broadcast")],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="admin:main")],
     ])
 
@@ -98,6 +103,52 @@ def _inv_keyboard(user_id: int) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data=f"admin:user:{user_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+
+
+
+def _broadcast_audience_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 Всем пользователям", callback_data="admin:bcast:audience:all")],
+        [InlineKeyboardButton(text="👤 Выбрать пользователя", callback_data="admin:bcast:audience:one:0")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="admin:bcast:cancel")],
+    ])
+
+
+def _broadcast_users_keyboard(page: int, total_pages: int, users_slice: list[tuple[int, dict]]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for user_id, user in users_slice:
+        pet = user.get("pet") if isinstance(user, dict) else None
+        pet_name = pet.get("name") if isinstance(pet, dict) else "без питомца"
+        rows.append([InlineKeyboardButton(text=f"👤 {user_id} · {pet_name}", callback_data=f"admin:bcast:target:{user_id}")])
+
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"admin:bcast:audience:one:{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="admin:broadcast"))
+    if page + 1 < total_pages:
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"admin:bcast:audience:one:{page + 1}"))
+    rows.append(nav)
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="admin:bcast:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить", callback_data="admin:bcast:confirm")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="admin:bcast:cancel")],
+    ])
+
+
+def _clear_broadcast_state(admin_id: int) -> None:
+    admin_broadcast_state.pop(admin_id, None)
+
+
+def _get_broadcast_recipients(state: dict) -> list[int]:
+    audience = state.get("audience")
+    if audience == "all":
+        return [user_id for user_id, _ in get_all_users()]
+    target = state.get("target_user_id")
+    return [target] if isinstance(target, int) else []
 
 def _currency_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -279,6 +330,22 @@ async def cmd_backup(message: Message) -> None:
     await message.answer_document(document=FSInputFile(backup_path))
 
 
+@router.message(F.content_type.in_({"text", "photo"}))
+async def admin_broadcast_collect_content(message: Message) -> None:
+    if not _is_admin_message(message):
+        return
+    state = admin_broadcast_state.get(message.from_user.id)
+    if not state or "audience" not in state:
+        return
+
+    state["source_chat_id"] = message.chat.id
+    state["source_message_id"] = message.message_id
+
+    await message.answer("📨 Предпросмотр сообщения:")
+    await message.bot.copy_message(chat_id=message.chat.id, from_chat_id=message.chat.id, message_id=message.message_id)
+    await message.answer("Подтвердите отправку:", reply_markup=_broadcast_confirm_keyboard())
+
+
 @router.callback_query(F.data.startswith("admin:"))
 async def admin_callbacks(callback: CallbackQuery) -> None:
     if not _is_admin_callback(callback):
@@ -330,6 +397,62 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
 
             await callback.message.edit_text(result_text, reply_markup=_admin_panel_keyboard())
 
+        elif data == "admin:broadcast":
+            admin_broadcast_state[callback.from_user.id] = {}
+            await callback.message.edit_text("📣 Рассылка\n\nВыберите получателей:", reply_markup=_broadcast_audience_keyboard())
+        elif data == "admin:bcast:cancel":
+            _clear_broadcast_state(callback.from_user.id)
+            await callback.message.edit_text("Рассылка отменена.", reply_markup=_admin_panel_keyboard())
+        elif len(parts) >= 4 and parts[1] == "bcast" and parts[2] == "audience" and parts[3] == "all":
+            state = admin_broadcast_state.setdefault(callback.from_user.id, {})
+            state["audience"] = "all"
+            state.pop("target_user_id", None)
+            await callback.message.edit_text("Отправьте сообщение для рассылки (текст или фото с подписью/без).", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="admin:bcast:cancel")]]))
+        elif len(parts) >= 5 and parts[1] == "bcast" and parts[2] == "audience" and parts[3] == "one":
+            page = max(0, int(parts[4]))
+            users = get_all_users()
+            if not users:
+                await callback.message.edit_text("Пользователи не найдены.", reply_markup=_broadcast_audience_keyboard())
+            else:
+                start = page * BROADCAST_USERS_PER_PAGE
+                total_pages = (len(users) + BROADCAST_USERS_PER_PAGE - 1) // BROADCAST_USERS_PER_PAGE
+                if page >= total_pages:
+                    page = total_pages - 1
+                    start = page * BROADCAST_USERS_PER_PAGE
+                users_slice = users[start:start + BROADCAST_USERS_PER_PAGE]
+                await callback.message.edit_text("👤 Выберите пользователя для рассылки:", reply_markup=_broadcast_users_keyboard(page, total_pages, users_slice))
+        elif len(parts) == 4 and parts[1] == "bcast" and parts[2] == "target":
+            target_user_id = int(parts[3])
+            state = admin_broadcast_state.setdefault(callback.from_user.id, {})
+            state["audience"] = "one"
+            state["target_user_id"] = target_user_id
+            await callback.message.edit_text(
+                f"Выбран пользователь: {target_user_id}.\n\n"
+                "Отправьте сообщение для рассылки (текст или фото с подписью/без).",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="admin:bcast:cancel")]]),
+            )
+        elif data == "admin:bcast:confirm":
+            state = admin_broadcast_state.get(callback.from_user.id)
+            if not state or "source_chat_id" not in state or "source_message_id" not in state:
+                await callback.message.answer("Нет подготовленного сообщения для рассылки.")
+            else:
+                recipients = _get_broadcast_recipients(state)
+                sent = 0
+                errors = 0
+                for user_id in recipients:
+                    try:
+                        await callback.bot.copy_message(chat_id=user_id, from_chat_id=state["source_chat_id"], message_id=state["source_message_id"])
+                        sent += 1
+                    except TelegramAPIError:
+                        errors += 1
+                _clear_broadcast_state(callback.from_user.id)
+                await callback.message.answer(
+                    "📣 Рассылка завершена\n\n"
+                    f"👥 Получателей: {len(recipients)}\n"
+                    f"✅ Отправлено: {sent}\n"
+                    f"⚠️ Ошибок: {errors}",
+                    reply_markup=_admin_panel_keyboard(),
+                )
         elif data == "admin:main":
             await callback.message.answer("Возврат в главное меню.", reply_markup=main_menu_keyboard())
         elif len(parts) == 3 and parts[1] == "users":
