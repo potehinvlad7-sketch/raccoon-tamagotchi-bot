@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 from keyboards import (
     BTN_BACK,
@@ -32,6 +32,7 @@ from keyboards import (
     care_menu_keyboard,
     main_menu_keyboard,
     build_shop_keyboard,
+    build_shop_item_keyboard,
     training_menu_keyboard,
     TRAVEL_LOCATIONS,
     travel_menu_keyboard,
@@ -44,7 +45,9 @@ from storage import (
     get_runaway_risk,
     get_item_catalog,
     get_shop_categories,
+    get_shop_item,
     get_shop_items_by_category,
+    shop_purchase,
     get_user,
     get_travel_event,
     get_travel_locations,
@@ -642,16 +645,32 @@ async def battle_run(message: Message) -> None:
 
 
 def _shop_category_text(category: dict, items: list[dict]) -> str:
-    items_count = len(items)
-    suffix = "" if items_count == 1 else "а" if 2 <= items_count <= 4 else "ов"
-    lines = [f"• {item.get('name', 'Предмет')} — {item.get('price', 0)} 🪙" for item in items]
-    item_list = "\n".join(lines) if lines else "Пока нет доступных товаров."
+    lines: list[str] = []
+    for item in items:
+        lines.extend(
+            [
+                f"{item.get('emoji', '🛒')} {item.get('name', 'Предмет')}",
+                str(item.get("description", "Описание отсутствует.")),
+                f"💰 {item.get('price', 0)} монет",
+                "",
+            ]
+        )
+    item_list = "\n".join(lines).strip() if lines else "Пока нет доступных товаров."
     return (
         f"{category.get('emoji', '🛒')} {category.get('title', 'Категория')}\n\n"
-        f"{category.get('description', '')}\n\n"
-        f"Товар{suffix}: {items_count}\n\n"
         f"{item_list}"
     )
+
+
+def _resolve_shop_emoji(item_id: str, item_name: str) -> str:
+    catalog = get_item_catalog()
+    from_catalog = catalog.get(item_id, {}).get("emoji")
+    if isinstance(from_catalog, str) and from_catalog:
+        return from_catalog
+    for value in ITEM_LABELS.values():
+        if item_name in value:
+            return value.split(" ")[0]
+    return "🛒"
 
 @router.message(F.text.in_(set(SHOP_BUTTON_TO_CATEGORY.keys())))
 async def shop_open_category(message: Message) -> None:
@@ -663,4 +682,40 @@ async def shop_open_category(message: Message) -> None:
         await message.answer("Категория недоступна.", reply_markup=build_shop_keyboard())
         return
     items = get_shop_items_by_category(category_id)
-    await message.answer(_shop_category_text(category, items), reply_markup=build_shop_keyboard())
+    prepared_items = [{**item, "emoji": _resolve_shop_emoji(str(item.get("id", "")), str(item.get("name", "")))} for item in items]
+    await message.answer(
+        _shop_category_text(category, prepared_items),
+        reply_markup=build_shop_item_keyboard(category_id, prepared_items),
+    )
+
+
+@router.callback_query(F.data.startswith("shop_back:"))
+async def shop_back_to_categories(callback: CallbackQuery) -> None:
+    if callback.message is None:
+        return
+    await callback.message.answer("🛒 Магазин", reply_markup=build_shop_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("shop_buy:"))
+async def shop_buy_item(callback: CallbackQuery) -> None:
+    if callback.from_user is None:
+        return
+    item_id = (callback.data or "").split(":", maxsplit=1)[1] if ":" in (callback.data or "") else ""
+    item = get_shop_item(item_id)
+    if not isinstance(item, dict):
+        await callback.answer("Товар недоступен.", show_alert=True)
+        return
+    success, price, _, count, _ = shop_purchase(callback.from_user.id, item_id)
+    if not success:
+        await callback.answer("Недостаточно монет.", show_alert=True)
+        return
+    emoji = _resolve_shop_emoji(item_id, str(item.get("name", "")))
+    await callback.message.answer(
+        "🛒 Покупка\n\n"
+        "Вы купили:\n"
+        f"{emoji} {item.get('name', 'Предмет')} x1\n\n"
+        "Потрачено:\n"
+        f"💰 {price} монет"
+    )
+    await callback.answer(f"В инвентаре: {count}")
