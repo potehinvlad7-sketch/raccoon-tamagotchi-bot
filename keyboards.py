@@ -1,4 +1,4 @@
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 from storage import get_shop_categories
 
@@ -117,3 +117,20 @@ def build_shop_keyboard() -> ReplyKeyboardMarkup:
         rows.append([KeyboardButton(text=f"{category.get('emoji', '🛒')} {category.get('title', 'Категория')}") for category in chunk])
     rows.append([KeyboardButton(text=BTN_SHOP_BACK)])
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
+def build_buy_button(item_id: str, item_name: str, item_emoji: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=f"Купить {item_emoji} {item_name}", callback_data=f"shop_buy:{item_id}")
+
+
+def build_shop_item_keyboard(category_id: str, items: list[dict]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for item in items:
+        item_id = str(item.get("id", "")).strip()
+        if not item_id:
+            continue
+        item_name = str(item.get("name", "Предмет"))
+        item_emoji = str(item.get("emoji", "🛒"))
+        rows.append([build_buy_button(item_id, item_name, item_emoji)])
+    rows.append([InlineKeyboardButton(text="⬅️ Категории", callback_data=f"shop_back:{category_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
