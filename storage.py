@@ -384,6 +384,26 @@ def touch_user_needs(user_id: int) -> dict[str, Any] | None:
     return user
 
 
+
+
+def refresh_user_metadata(user_id: int, telegram_user: Any) -> dict[str, Any]:
+    users = load_users()
+    key = str(user_id)
+    user = users.get(key)
+    if not isinstance(user, dict):
+        user = {}
+
+    user["username"] = telegram_user.username if isinstance(getattr(telegram_user, "username", None), str) else None
+    user["first_name"] = telegram_user.first_name if isinstance(getattr(telegram_user, "first_name", None), str) else None
+    user["last_name"] = telegram_user.last_name if isinstance(getattr(telegram_user, "last_name", None), str) else None
+    user["language_code"] = telegram_user.language_code if isinstance(getattr(telegram_user, "language_code", None), str) else None
+    user["is_bot"] = bool(getattr(telegram_user, "is_bot", False))
+    user["last_seen_at"] = utc_now().isoformat()
+
+    users[key] = user
+    save_users(users)
+    return user
+
 def has_pet(user_id: int) -> bool:
     user = get_user(user_id)
     return bool(user and isinstance(user.get("pet"), dict))
@@ -392,8 +412,10 @@ def has_pet(user_id: int) -> bool:
 def create_pet(user_id: int, name: str, gender: str) -> dict[str, Any]:
     users = load_users()
     now = utc_now().isoformat()
-    users[str(user_id)] = {
-        "pet": {
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        user = {}
+    user["pet"] = {
             "name": name,
             "gender": gender,
             "level": 1,
@@ -411,7 +433,7 @@ def create_pet(user_id: int, name: str, gender: str) -> dict[str, Any]:
             "updated_at": now,
             "last_needs_update_at": now,
         }
-    }
+    users[str(user_id)] = user
     save_users(users)
     return users[str(user_id)]
 

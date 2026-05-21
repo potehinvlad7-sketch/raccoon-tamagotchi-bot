@@ -65,6 +65,7 @@ from storage import (
     perform_travel,
     resolve_battle_attack,
     resolve_battle_run,
+    refresh_user_metadata,
     touch_user_needs,
     train_skill,
     update_pet_mood,
@@ -309,6 +310,7 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
 async def show_status(message: Message) -> None:
     if message.from_user is None:
         return
+    refresh_user_metadata(message.from_user.id, message.from_user)
     user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
@@ -333,6 +335,7 @@ async def show_status(message: Message) -> None:
 async def show_raccoon(message: Message) -> None:
     if message.from_user is None:
         return
+    refresh_user_metadata(message.from_user.id, message.from_user)
     user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
@@ -345,6 +348,7 @@ async def show_raccoon(message: Message) -> None:
 async def show_raccoon_group_command(message: Message) -> None:
     if message.from_user is None:
         return
+    refresh_user_metadata(message.from_user.id, message.from_user)
     user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
@@ -357,6 +361,7 @@ async def show_raccoon_group_command(message: Message) -> None:
 async def show_inventory(message: Message) -> None:
     if message.from_user is None:
         return
+    refresh_user_metadata(message.from_user.id, message.from_user)
     user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
@@ -405,6 +410,7 @@ async def contact_admin_send(message: Message, state: FSMContext) -> None:
         await message.answer("Администрация сейчас недоступна.", reply_markup=main_menu_keyboard())
         return
 
+    refresh_user_metadata(message.from_user.id, message.from_user)
     user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     pet_name = str(pet.get("name", "без питомца")) if isinstance(pet, dict) else "без питомца"

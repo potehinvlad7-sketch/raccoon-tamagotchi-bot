@@ -18,6 +18,7 @@ from storage import (
     get_pet_max_needs,
     get_storage_stats,
     get_user_by_id,
+    refresh_user_metadata,
 )
 
 router = Router()
@@ -251,6 +252,7 @@ async def cmd_admin(message: Message) -> None:
     if not _is_admin_message(message):
         await message.answer(ADMIN_ONLY_TEXT)
         return
+    refresh_user_metadata(message.from_user.id, message.from_user)
     await message.answer("🛠 <b>Админ-панель</b>\nВыберите действие:", reply_markup=_admin_panel_keyboard())
 
 
@@ -321,17 +323,17 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
                 profile_text = _format_user_detail(user_id, user)
                 extra_text = _format_inventory_summary(user) + "\n\n" + _format_active_states(user)
                 if len(profile_text) + len(extra_text) > 3600:
-                    await callback.message.edit_text(profile_text, reply_markup=_user_actions_keyboard(user_id))
+                    await callback.message.edit_text(profile_text, parse_mode="HTML", reply_markup=_user_actions_keyboard(user_id))
                     await callback.message.answer(extra_text)
                 else:
-                    await callback.message.edit_text(profile_text + "\n\n" + extra_text, reply_markup=_user_actions_keyboard(user_id))
+                    await callback.message.edit_text(profile_text + "\n\n" + extra_text, parse_mode="HTML", reply_markup=_user_actions_keyboard(user_id))
         elif len(parts) == 3 and parts[1] == "pet":
             user_id = int(parts[2])
             user = get_user_by_id(user_id)
             if user is None:
                 await callback.message.answer("Пользователь не найден.")
             else:
-                await callback.message.edit_text(_format_user_detail(user_id, user), reply_markup=_user_actions_keyboard(user_id))
+                await callback.message.edit_text(_format_user_detail(user_id, user), parse_mode="HTML", reply_markup=_user_actions_keyboard(user_id))
         elif len(parts) == 3 and parts[1] == "edit":
             user_id = int(parts[2])
             await callback.message.edit_text("✏️ Выберите действие для редактирования питомца:", reply_markup=_pet_edit_keyboard(user_id))
