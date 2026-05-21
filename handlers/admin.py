@@ -13,6 +13,7 @@ from storage import (
     admin_restore_needs,
     admin_update_pet_value,
     create_users_backup,
+    ensure_pet_defaults,
     get_all_users,
     get_pet_max_needs,
     get_storage_stats,
@@ -128,37 +129,119 @@ def _format_user_line(user_id: int, user: dict) -> str:
 
 
 def _format_user_detail(user_id: int, user: dict) -> str:
-    username = user.get("username") if isinstance(user.get("username"), str) and user.get("username") else "без username"
+    user, _ = ensure_pet_defaults(user)
+    username_raw = user.get("username")
+    username = f"@{username_raw}" if isinstance(username_raw, str) and username_raw else "без username"
+    first_name = user.get("first_name") if isinstance(user.get("first_name"), str) and user.get("first_name") else "неизвестно"
+    last_name = user.get("last_name") if isinstance(user.get("last_name"), str) and user.get("last_name") else "неизвестно"
+    language = user.get("language_code") if isinstance(user.get("language_code"), str) and user.get("language_code") else "неизвестно"
+    is_bot = user.get("is_bot") if isinstance(user.get("is_bot"), bool) else "неизвестно"
+    registration_time = user.get("created_at") if isinstance(user.get("created_at"), str) and user.get("created_at") else "неизвестно"
+
     pet = user.get("pet")
     if not isinstance(pet, dict):
-        return f"👤 <b>Пользователь</b>\nID: <code>{user_id}</code>\nUsername: {username}\n\n🦝 Питомец: отсутствует"
+        return (
+            "👤 <b>Пользователь:</b>\n"
+            f"• ID: <code>{user_id}</code>\n"
+            f"• Username: {username}\n"
+            f"• First name: {first_name}\n"
+            f"• Last name: {last_name}\n"
+            f"• Language: {language}\n"
+            f"• Is bot: {is_bot}\n"
+            f"• Registration time: {registration_time}\n\n"
+            "🦝 <b>Питомец:</b>\n• отсутствует\n\n"
+            "💰 <b>Экономика:</b>\n• Монеты: 0\n• Всего заработано: неизвестно\n• Всего потрачено: неизвестно"
+        )
 
     max_needs = get_pet_max_needs(pet)
     skills = pet.get("skills", {}) if isinstance(pet.get("skills"), dict) else {}
     inv = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
     travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
     battle = pet.get("battle")
-    inv_total = sum(v for v in inv.values() if isinstance(v, int) and v > 0)
+    total_earned = pet.get("total_earned") if isinstance(pet.get("total_earned"), int) else "неизвестно"
+    total_spent = pet.get("total_spent") if isinstance(pet.get("total_spent"), int) else "неизвестно"
     return (
-        "👤 <b>Профиль пользователя</b>\n"
-        f"ID: <code>{user_id}</code>\n"
-        f"Username: {username}\n\n"
-        "🦝 <b>Питомец</b>\n"
-        f"Имя: {pet.get('name', '—')}\n"
-        f"Пол: {pet.get('gender', '—')}\n"
-        f"Уровень: {pet.get('level', 1)}\n"
-        f"Опыт: {pet.get('exp', 0)}\n"
-        f"Монеты: {pet.get('currency', 0)}\n\n"
-        "📊 <b>Шкалы</b>\n"
-        f"Сытость: {pet.get('satiety', 0)}/{max_needs['satiety']}\n"
-        f"Чистота: {pet.get('cleanliness', 0)}/{max_needs['cleanliness']}\n"
-        f"Любовь: {pet.get('love', 0)}/{max_needs['love']}\n"
-        f"Энергия: {pet.get('energy', 0)}/{max_needs['energy']}\n\n"
-        f"💪 Сила: {skills.get('strength', 0)} | 💨 Ловкость: {skills.get('agility', 0)} | 🌙 Инстинкт: {skills.get('instinct', 0)}\n"
-        f"🎒 Предметов в инвентаре: {inv_total}\n"
-        f"🌲 Путешествий: {travel.get('total_travels', 0)}\n"
-        f"📝 Последнее событие: {travel.get('last_event') or 'нет'}\n"
-        f"⚔️ Активный бой: {'да' if isinstance(battle, dict) else 'нет'}"
+        "👤 <b>Пользователь:</b>\n"
+        f"• ID: <code>{user_id}</code>\n"
+        f"• Username: {username}\n"
+        f"• First name: {first_name}\n"
+        f"• Last name: {last_name}\n"
+        f"• Language: {language}\n"
+        f"• Is bot: {is_bot}\n"
+        f"• Registration time: {registration_time}\n\n"
+        "🦝 <b>Питомец:</b>\n"
+        f"• Имя: {pet.get('name', 'неизвестно')}\n"
+        f"• Пол: {pet.get('gender', 'неизвестно')}\n"
+        f"• Уровень: {pet.get('level', 1)}\n"
+        f"• Опыт: {pet.get('exp', 0)}\n"
+        "• Навыки:\n"
+        f"  - сила: {skills.get('strength', 0)}\n"
+        f"  - ловкость: {skills.get('agility', 0)}\n"
+        f"  - инстинкт: {skills.get('instinct', 0)}\n"
+        "• Статы:\n"
+        f"  - сытость: {pet.get('satiety', 0)}/{max_needs['satiety']}\n"
+        f"  - чистота: {pet.get('cleanliness', 0)}/{max_needs['cleanliness']}\n"
+        f"  - любовь: {pet.get('love', 0)}/{max_needs['love']}\n"
+        f"  - энергия: {pet.get('energy', 0)}/{max_needs['energy']}\n\n"
+        "🎮 <b>Прогресс:</b>\n"
+        f"• Путешествий: {travel.get('total_travels', 0)}\n"
+        f"• Последнее событие: {travel.get('last_event') or 'неизвестно'}\n\n"
+        "💰 <b>Экономика:</b>\n"
+        f"• Монеты: {pet.get('currency', 0)}\n"
+        f"• Всего заработано: {total_earned}\n"
+        f"• Всего потрачено: {total_spent}"
+    )
+
+
+def _format_inventory_summary(user: dict) -> str:
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return "🎒 <b>Инвентарь:</b>\n• отсутствует"
+    inv = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
+    categories = {
+        "food": ("🍖 Еда", []),
+        "cleanliness": ("🧺 Хозмаг", []),
+        "love": ("🧸 Игрушки", []),
+        "energy": ("🧪 Зелья", []),
+        "scrolls": ("📜 Свитки", []),
+    }
+    for key, amount in inv.items():
+        if not isinstance(amount, int) or amount <= 0:
+            continue
+        meta = ITEM_CATALOG.get(key, {})
+        name = meta.get("name", key)
+        if key.endswith("_scroll"):
+            categories["scrolls"][1].append(f"• {name} x{amount}")
+            continue
+        bucket = meta.get("category", "")
+        if bucket in categories:
+            categories[bucket][1].append(f"• {name} x{amount}")
+    lines = ["🎒 <b>Инвентарь:</b>"]
+    for title, entries in categories.values():
+        if entries:
+            lines.append(f"\n{title}:\n" + "\n".join(entries))
+    if len(lines) == 1:
+        lines.append("• пусто")
+    return "\n".join(lines)
+
+
+def _format_active_states(user: dict) -> str:
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return "⚔️ <b>Состояние:</b>\n• Active battle: no\n• Travel state: no\n• Current location: неизвестно"
+    battle = pet.get("battle")
+    travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
+    battle_active = isinstance(battle, dict)
+    travel_active = isinstance(travel, dict) and bool(travel.get("current_location"))
+    location = travel.get("current_location") if isinstance(travel.get("current_location"), str) and travel.get("current_location") else "неизвестно"
+    return (
+        "⚔️ <b>Состояние:</b>\n"
+        f"• Active battle: {'yes' if battle_active else 'no'}\n"
+        f"• Travel state: {'yes' if travel_active else 'no'}\n"
+        f"• Current location: {location}"
+    ) + (
+        f"\n• Enemy: {battle.get('enemy_id', 'неизвестно')}\n• Enemy status: active"
+        if battle_active else ""
     )
 
 
@@ -234,7 +317,13 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
             if user is None:
                 await callback.message.answer("Пользователь не найден.")
             else:
-                await callback.message.edit_text(_format_user_detail(user_id, user), reply_markup=_user_actions_keyboard(user_id))
+                profile_text = _format_user_detail(user_id, user)
+                extra_text = _format_inventory_summary(user) + "\n\n" + _format_active_states(user)
+                if len(profile_text) + len(extra_text) > 3600:
+                    await callback.message.edit_text(profile_text, reply_markup=_user_actions_keyboard(user_id))
+                    await callback.message.answer(extra_text)
+                else:
+                    await callback.message.edit_text(profile_text + "\n\n" + extra_text, reply_markup=_user_actions_keyboard(user_id))
         elif len(parts) == 3 and parts[1] == "pet":
             user_id = int(parts[2])
             user = get_user_by_id(user_id)
