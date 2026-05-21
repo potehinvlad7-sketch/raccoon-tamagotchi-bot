@@ -396,7 +396,7 @@ async def shop_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
     categories = list(get_shop_categories().values())
-    await message.answer("🛒 Магазин\n\nВыбери категорию:", reply_markup=shop_categories_inline_keyboard(categories))
+    await message.answer("🛒 Магазин\n\nВыбери раздел — покажу товары в один клик.", reply_markup=shop_categories_inline_keyboard(categories))
 
 
 @router.message(F.text == BTN_BACK)
@@ -627,12 +627,12 @@ async def battle_run(message: Message) -> None:
 
 
 def _shop_category_text(category: dict, items: list[dict]) -> str:
-    item_lines = [f"• {item.get('name', 'Предмет')} — {item.get('price', 0)} монет" for item in items]
+    items_count = len(items)
+    suffix = "" if items_count == 1 else "а" if 2 <= items_count <= 4 else "ов"
     return (
         f"{category.get('emoji', '🛒')} {category.get('title', 'Категория')}\n\n"
         f"{category.get('description', '')}\n\n"
-        "Доступные предметы:\n"
-        + ("\n".join(item_lines) if item_lines else "Пока пусто.")
+        f"Товар{suffix}: {items_count}. Выбери предмет кнопкой ниже."
     )
 
 
@@ -681,9 +681,19 @@ async def shop_back_categories(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
     categories = list(get_shop_categories().values())
-    await callback.message.edit_text("🛒 Магазин\n\nВыбери категорию:", reply_markup=shop_categories_inline_keyboard(categories))
+    await callback.message.edit_text("🛒 Магазин\n\nВыбери раздел — покажу товары в один клик.", reply_markup=shop_categories_inline_keyboard(categories))
     await callback.answer()
 
+
+
+
+@router.callback_query(F.data == "shop:back:main")
+async def shop_back_main(callback: CallbackQuery) -> None:
+    if callback.message is None:
+        return
+    await callback.message.edit_text("🏠 Возвращаю в главное меню.", reply_markup=None)
+    await callback.message.answer("Главное меню:", reply_markup=main_menu_keyboard())
+    await callback.answer()
 
 @router.callback_query(F.data.startswith("shop:buy:"))
 async def shop_buy_item(callback: CallbackQuery) -> None:
