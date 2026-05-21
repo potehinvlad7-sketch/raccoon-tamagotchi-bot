@@ -1,5 +1,7 @@
 from aiogram import F, Router
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import is_admin
@@ -26,6 +28,12 @@ router = Router()
 
 ADMIN_ONLY_TEXT = "⛔ Команда доступна только администраторам."
 USERS_PER_PAGE = 7
+BROADCAST_DRAFTS: dict[int, dict] = {}
+
+
+class AdminBroadcastState(StatesGroup):
+    waiting_for_content = State()
+    waiting_for_confirm = State()
 
 
 def _is_admin_message(message: Message) -> bool:
@@ -40,10 +48,43 @@ def _admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
         [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:0")],
+        [InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:bcast:menu")],
         [InlineKeyboardButton(text="💾 Backup JSON", callback_data="admin:backup")],
         [InlineKeyboardButton(text="🔄 Обновить пользователей", callback_data="admin:refresh_users")],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="admin:main")],
     ])
+
+
+def _broadcast_audience_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 Всем пользователям", callback_data="admin:bcast:all")],
+        [InlineKeyboardButton(text="👤 Выбрать пользователя", callback_data="admin:bcast:pick:0")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="admin:bcast:cancel")],
+    ])
+
+
+def _broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить", callback_data="admin:bcast:send")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="admin:bcast:cancel")],
+    ])
+
+
+def _broadcast_users_keyboard(page: int, total_pages: int, users_slice: list[tuple[int, dict]]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for user_id, user in users_slice:
+        pet = user.get("pet") if isinstance(user, dict) else None
+        pet_name = pet.get("name") if isinstance(pet, dict) else "без питомца"
+        rows.append([InlineKeyboardButton(text=f"👤 {user_id} · {pet_name}", callback_data=f"admin:bcast:target:{user_id}")])
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"admin:bcast:pick:{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="admin:bcast:menu"))
+    if page + 1 < total_pages:
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"admin:bcast:pick:{page + 1}"))
+    rows.append(nav)
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="admin:bcast:cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _users_keyboard(page: int, total_pages: int, users_slice: list[tuple[int, dict]]) -> InlineKeyboardMarkup:
@@ -280,7 +321,7 @@ async def cmd_backup(message: Message) -> None:
 
 
 @router.callback_query(F.data.startswith("admin:"))
-async def admin_callbacks(callback: CallbackQuery) -> None:
+async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
     if not _is_admin_callback(callback):
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -290,7 +331,68 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
 
     try:
         if data == "admin:panel":
+            BROADCAST_DRAFTS.pop(callback.from_user.id, None)
+            await state.clear()
             await callback.message.edit_text("🛠 <b>Админ-панель</b>\nВыберите действие:", reply_markup=_admin_panel_keyboard())
+        elif data == "admin:bcast:menu":
+            BROADCAST_DRAFTS.pop(callback.from_user.id, None)
+            await state.clear()
+            await callback.message.edit_text("📣 Выберите получателей рассылки:", reply_markup=_broadcast_audience_keyboard())
+        elif data == "admin:bcast:all":
+            BROADCAST_DRAFTS[callback.from_user.id] = {"mode": "all"}
+            await state.set_state(AdminBroadcastState.waiting_for_content)
+            await callback.message.answer("Отправьте сообщение для рассылки (текст или фото).")
+        elif len(parts) == 4 and parts[1] == "bcast" and parts[2] == "pick":
+            page = max(0, int(parts[3]))
+            users = get_all_users()
+            if not users:
+                await callback.message.edit_text("Пользователи не найдены.", reply_markup=_broadcast_audience_keyboard())
+            else:
+                total_pages = (len(users) + USERS_PER_PAGE - 1) // USERS_PER_PAGE
+                if page >= total_pages:
+                    page = total_pages - 1
+                start = page * USERS_PER_PAGE
+                users_slice = users[start:start + USERS_PER_PAGE]
+                text = "👤 Выберите пользователя для рассылки:\n\n" + "\n".join(_format_user_line(uid, user) for uid, user in users_slice)
+                await callback.message.edit_text(text, reply_markup=_broadcast_users_keyboard(page, total_pages, users_slice))
+        elif len(parts) == 4 and parts[1] == "bcast" and parts[2] == "target":
+            user_id = int(parts[3])
+            if get_user_by_id(user_id) is None:
+                await callback.message.answer("Пользователь не найден.")
+            else:
+                BROADCAST_DRAFTS[callback.from_user.id] = {"mode": "one", "target_user_id": user_id}
+                await state.set_state(AdminBroadcastState.waiting_for_content)
+                await callback.message.answer(f"Отправьте сообщение для рассылки пользователю <code>{user_id}</code>.")
+        elif data == "admin:bcast:cancel":
+            BROADCAST_DRAFTS.pop(callback.from_user.id, None)
+            await state.clear()
+            await callback.message.answer("Рассылка отменена.", reply_markup=_admin_panel_keyboard())
+        elif data == "admin:bcast:send":
+            draft = BROADCAST_DRAFTS.get(callback.from_user.id)
+            if not draft:
+                await callback.message.answer("Черновик рассылки не найден.")
+            else:
+                recipients = [draft["target_user_id"]] if draft.get("mode") == "one" else [uid for uid, _ in get_all_users()]
+                sent = 0
+                failed = 0
+                for recipient in recipients:
+                    try:
+                        await callback.bot.copy_message(
+                            chat_id=recipient,
+                            from_chat_id=draft["source_chat_id"],
+                            message_id=draft["source_message_id"],
+                        )
+                        sent += 1
+                    except Exception:
+                        failed += 1
+                await callback.message.answer(
+                    "📣 Рассылка завершена\n\n"
+                    f"👥 Получателей: {len(recipients)}\n"
+                    f"✅ Отправлено: {sent}\n"
+                    f"⚠️ Ошибок: {failed}"
+                )
+                BROADCAST_DRAFTS.pop(callback.from_user.id, None)
+                await state.clear()
         elif data == "admin:stats":
             await callback.message.edit_text(_format_stats(), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")]]))
         elif data == "admin:backup":
@@ -435,3 +537,35 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
         await callback.message.answer("Некорректная команда админ-панели.")
 
     await callback.answer()
+
+
+@router.message(AdminBroadcastState.waiting_for_content, F.text == "❌ Отмена")
+async def broadcast_content_cancel(message: Message, state: FSMContext) -> None:
+    if not _is_admin_message(message):
+        return
+    BROADCAST_DRAFTS.pop(message.from_user.id, None)
+    await state.clear()
+    await message.answer("Рассылка отменена.", reply_markup=main_menu_keyboard())
+
+
+@router.message(AdminBroadcastState.waiting_for_content)
+async def broadcast_capture_content(message: Message, state: FSMContext) -> None:
+    if not _is_admin_message(message):
+        await state.clear()
+        return
+    draft = BROADCAST_DRAFTS.get(message.from_user.id)
+    if not draft:
+        await state.clear()
+        await message.answer("Черновик рассылки не найден.")
+        return
+    has_text = bool(message.text and message.text.strip())
+    has_photo = bool(message.photo)
+    if not has_text and not has_photo:
+        await message.answer("Поддерживается только текст или фото (с подписью/без подписи).")
+        return
+    draft["source_chat_id"] = message.chat.id
+    draft["source_message_id"] = message.message_id
+    await state.set_state(AdminBroadcastState.waiting_for_confirm)
+    await message.answer("📋 Предпросмотр рассылки:")
+    await message.bot.copy_message(chat_id=message.chat.id, from_chat_id=message.chat.id, message_id=message.message_id)
+    await message.answer("Подтвердить отправку?", reply_markup=_broadcast_confirm_keyboard())
