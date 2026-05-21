@@ -1,4 +1,5 @@
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 BTN_STATUS = "📊 Статус"
 BTN_CARE = "🧼 Уход"
@@ -41,18 +42,6 @@ TRAVEL_LOCATIONS = {
     "stone_ravine": {"button": "🪨 Каменный овраг", "name": "Каменный овраг", "min_level": 7},
     "forest_ruins": {"button": "🏚 Лесные руины", "name": "Лесные руины", "min_level": 10},
 }
-
-BTN_BUY_FOOD = "🍎 Яблоко — 5 монет"
-BTN_BUY_HEARTY_SNACK = "🥪 Сытный перекус — 12 монет"
-BTN_BUY_FOREST_HONEY = "🍯 Лесной мёд — 22 монеты"
-BTN_BUY_SOAP = "🧼 Мыло — 7 монет"
-BTN_BUY_SHAMPOO = "🫧 Шампунь — 14 монет"
-BTN_BUY_COMB = "🪮 Гребень — 4 монеты"
-BTN_BUY_TOY = "🎾 Мячик — 8 монет"
-BTN_BUY_YARN_BALL = "🧶 Клубок — 14 монет"
-BTN_BUY_FUN_TOY = "🪀 Игрушка — 24 монеты"
-BTN_BUY_ENERGY = "⚡ Малое зелье — 12 монет"
-BTN_BUY_BIG_ENERGY = "🔋 Большое зелье — 25 монет"
 
 
 def gender_keyboard() -> ReplyKeyboardMarkup:
@@ -118,14 +107,21 @@ def training_menu_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def shop_menu_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=BTN_BUY_FOOD), KeyboardButton(text=BTN_BUY_HEARTY_SNACK), KeyboardButton(text=BTN_BUY_FOREST_HONEY)],
-            [KeyboardButton(text=BTN_BUY_SOAP), KeyboardButton(text=BTN_BUY_SHAMPOO), KeyboardButton(text=BTN_BUY_COMB)],
-            [KeyboardButton(text=BTN_BUY_TOY), KeyboardButton(text=BTN_BUY_YARN_BALL), KeyboardButton(text=BTN_BUY_FUN_TOY)],
-            [KeyboardButton(text=BTN_BUY_ENERGY), KeyboardButton(text=BTN_BUY_BIG_ENERGY)],
-            [KeyboardButton(text=BTN_BACK)],
-        ],
-        resize_keyboard=True,
-    )
+def shop_categories_inline_keyboard(categories: list[dict]) -> object:
+    builder = InlineKeyboardBuilder()
+    for category in categories:
+        builder.button(
+            text=f"{category.get('emoji', '🛒')} {category.get('title', 'Категория')}",
+            callback_data=f"shop:category:{category.get('id', '')}",
+        )
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def shop_items_inline_keyboard(category_id: str, items: list[dict]) -> object:
+    builder = InlineKeyboardBuilder()
+    for item in items:
+        builder.button(text=f"{item.get('name', 'Предмет')} — {item.get('price', 0)}", callback_data=f"shop:buy:{item.get('id', '')}")
+    builder.button(text="⬅️ К категориям", callback_data="shop:back:categories")
+    builder.adjust(1)
+    return builder.as_markup()
