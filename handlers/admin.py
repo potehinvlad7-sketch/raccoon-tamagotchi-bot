@@ -25,6 +25,10 @@ router = Router()
 ADMIN_ONLY_TEXT = "⛔ Команда доступна только администраторам."
 USERS_PER_PAGE = 7
 
+BROADCAST_TARGET_ALL = -1
+
+broadcast_drafts: dict[int, dict] = {}
+
 
 def _is_admin_message(message: Message) -> bool:
     return bool(message.from_user and is_admin(message.from_user.id))
@@ -38,6 +42,7 @@ def _admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
         [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:0")],
+        [InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:broadcast")],
         [InlineKeyboardButton(text="💾 Backup JSON", callback_data="admin:backup")],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="admin:main")],
     ])
@@ -58,6 +63,41 @@ def _users_keyboard(page: int, total_pages: int, users_slice: list[tuple[int, di
         nav.append(InlineKeyboardButton(text="➡️", callback_data=f"admin:users:{page + 1}"))
     rows.append(nav)
     rows.append([InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin:panel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+
+
+def _broadcast_audience_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👥 Всем пользователям", callback_data="admin:broadcast:all")],
+        [InlineKeyboardButton(text="👤 Выбрать пользователя", callback_data="admin:broadcast:select")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="admin:broadcast:cancel")],
+    ])
+
+
+def _broadcast_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Отправить", callback_data="admin:broadcast:send")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="admin:broadcast:cancel")],
+    ])
+
+
+def _broadcast_users_keyboard(page: int, total_pages: int, users_slice: list[tuple[int, dict]]) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for user_id, user in users_slice:
+        pet = user.get("pet") if isinstance(user, dict) else None
+        pet_name = pet.get("name") if isinstance(pet, dict) else "без питомца"
+        rows.append([InlineKeyboardButton(text=f"👤 {user_id} · {pet_name}", callback_data=f"admin:broadcast:pick:{user_id}")])
+
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"admin:broadcast:users:{page - 1}"))
+    nav.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="admin:broadcast"))
+    if page + 1 < total_pages:
+        nav.append(InlineKeyboardButton(text="➡️", callback_data=f"admin:broadcast:users:{page + 1}"))
+    rows.append(nav)
+    rows.append([InlineKeyboardButton(text="❌ Отмена", callback_data="admin:broadcast:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -275,6 +315,29 @@ async def cmd_backup(message: Message) -> None:
     await message.answer_document(document=FSInputFile(backup_path))
 
 
+
+
+@router.message()
+async def handle_broadcast_content(message: Message) -> None:
+    if not _is_admin_message(message):
+        return
+    admin_id = message.from_user.id
+    draft = broadcast_drafts.get(admin_id)
+    if not draft or not draft.get("awaiting_content"):
+        return
+
+    if not message.text and not message.photo:
+        await message.answer("✉️ Отправьте текст, фото или фото с подписью для рассылки.")
+        return
+
+    draft["content_chat_id"] = message.chat.id
+    draft["content_message_id"] = message.message_id
+    draft["awaiting_content"] = False
+
+    await message.answer("📣 Предпросмотр рассылки\n\nПроверьте сообщение перед отправкой.")
+    await message.bot.copy_message(chat_id=admin_id, from_chat_id=message.chat.id, message_id=message.message_id)
+    await message.answer("Отправить рассылку?", reply_markup=_broadcast_confirm_keyboard())
+
 @router.callback_query(F.data.startswith("admin:"))
 async def admin_callbacks(callback: CallbackQuery) -> None:
     if not _is_admin_callback(callback):
@@ -296,6 +359,74 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
                 await callback.message.answer_document(document=FSInputFile(backup_path))
             else:
                 await callback.message.answer(f"❌ {backup_path}")
+        elif data == "admin:broadcast":
+            broadcast_drafts.pop(callback.from_user.id, None)
+            await callback.message.edit_text("📣 Рассылка\n\nКому отправляем сообщение?", reply_markup=_broadcast_audience_keyboard())
+        elif data == "admin:broadcast:all":
+            broadcast_drafts[callback.from_user.id] = {"target": BROADCAST_TARGET_ALL, "awaiting_content": True}
+            await callback.message.edit_text("✉️ Отправьте текст, фото или фото с подписью для рассылки.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="admin:broadcast:cancel")]]))
+        elif data == "admin:broadcast:select":
+            users = get_all_users()
+            if not users:
+                await callback.message.edit_text("Пользователи не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:broadcast")]]))
+            else:
+                page = 0
+                start = page * USERS_PER_PAGE
+                total_pages = (len(users) + USERS_PER_PAGE - 1) // USERS_PER_PAGE
+                users_slice = users[start:start + USERS_PER_PAGE]
+                text = "👥 Выберите пользователя для рассылки\n\n" + "\n".join(_format_user_line(uid, user) for uid, user in users_slice)
+                await callback.message.edit_text(text, reply_markup=_broadcast_users_keyboard(page, total_pages, users_slice))
+        elif data == "admin:broadcast:cancel":
+            broadcast_drafts.pop(callback.from_user.id, None)
+            await callback.message.edit_text("❌ Рассылка отменена.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🛠 Админ-панель", callback_data="admin:panel")]]))
+        elif data == "admin:broadcast:send":
+            draft = broadcast_drafts.get(callback.from_user.id)
+            if not draft or draft.get("awaiting_content"):
+                await callback.message.answer("Нет сообщения для рассылки.")
+            else:
+                target = draft.get("target")
+                if target == BROADCAST_TARGET_ALL:
+                    recipients = [uid for uid, _ in get_all_users() if isinstance(uid, int) and uid > 0]
+                elif isinstance(target, int) and target > 0:
+                    recipients = [target]
+                else:
+                    recipients = []
+                sent = 0
+                failed = 0
+                for recipient_id in recipients:
+                    try:
+                        await callback.bot.copy_message(chat_id=recipient_id, from_chat_id=draft["content_chat_id"], message_id=draft["content_message_id"])
+                        sent += 1
+                    except Exception:
+                        failed += 1
+                broadcast_drafts.pop(callback.from_user.id, None)
+                await callback.message.answer(
+                    "📣 Рассылка завершена\n\n"
+                    f"✅ Отправлено: {sent}\n"
+                    f"⚠️ Ошибок: {failed}\n"
+                    f"👥 Получателей: {len(recipients)}"
+                )
+        elif len(parts) == 4 and parts[1] == "broadcast" and parts[2] == "users":
+            page = max(0, int(parts[3]))
+            users = get_all_users()
+            if not users:
+                await callback.message.edit_text("Пользователи не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:broadcast")]]))
+            else:
+                start = page * USERS_PER_PAGE
+                total_pages = (len(users) + USERS_PER_PAGE - 1) // USERS_PER_PAGE
+                if page >= total_pages:
+                    page = total_pages - 1
+                    start = page * USERS_PER_PAGE
+                users_slice = users[start:start + USERS_PER_PAGE]
+                text = "👥 Выберите пользователя для рассылки\n\n" + "\n".join(_format_user_line(uid, user) for uid, user in users_slice)
+                await callback.message.edit_text(text, reply_markup=_broadcast_users_keyboard(page, total_pages, users_slice))
+        elif len(parts) == 4 and parts[1] == "broadcast" and parts[2] == "pick":
+            user_id = int(parts[3])
+            if get_user_by_id(user_id) is None:
+                await callback.message.answer("Пользователь не найден.")
+            else:
+                broadcast_drafts[callback.from_user.id] = {"target": user_id, "awaiting_content": True}
+                await callback.message.edit_text("✉️ Отправьте текст, фото или фото с подписью для рассылки.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Отмена", callback_data="admin:broadcast:cancel")]]))
         elif data == "admin:main":
             await callback.message.answer("Возврат в главное меню.", reply_markup=main_menu_keyboard())
         elif len(parts) == 3 and parts[1] == "users":
