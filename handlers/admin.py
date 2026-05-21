@@ -119,13 +119,14 @@ def _format_stats() -> str:
 
 
 def _format_user_line(user_id: int, user: dict) -> str:
-    username = user.get("username") if isinstance(user.get("username"), str) and user.get("username") else "без username"
+    username_raw = user.get("username") if isinstance(user, dict) else None
+    username = f"@{username_raw}" if isinstance(username_raw, str) and username_raw else "без username"
     pet = user.get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
-        return f"• <code>{user_id}</code> | @{username if username != 'без username' else username} | без питомца"
+        return f"• {user_id} | {username} | без питомца"
     level = pet.get("level", 1)
     pet_name = pet.get("name", "без имени")
-    return f"• <code>{user_id}</code> | @{username if username != 'без username' else username} | {pet_name} (ур. {level})"
+    return f"• {user_id} | {username} | {pet_name} (ур. {level})"
 
 
 def _format_user_detail(user_id: int, user: dict) -> str:
@@ -309,7 +310,7 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
                     page = total_pages - 1
                     start = page * USERS_PER_PAGE
                 users_slice = users[start:start + USERS_PER_PAGE]
-                text = "👥 <b>Пользователи</b>\n\n" + "\n".join(_format_user_line(uid, user) for uid, user in users_slice)
+                text = "👥 Пользователи\n\n" + "\n".join(_format_user_line(uid, user) for uid, user in users_slice)
                 await callback.message.edit_text(text, reply_markup=_users_keyboard(page, total_pages, users_slice))
         elif len(parts) == 3 and parts[1] == "user":
             user_id = int(parts[2])
