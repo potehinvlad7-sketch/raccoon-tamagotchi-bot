@@ -11,6 +11,7 @@ BTN_INVENTORY = "🎒 Инвентарь"
 BTN_MY_RACCOON = "🦝 Мой енот"
 BTN_HELP = "❔ Помощь"
 BTN_CONTACT_ADMIN = "📨 Написать админу"
+BTN_LETTER_TO_RACCOON = "💌 Дать енотику письмо"
 BTN_CANCEL = "❌ Отмена"
 BTN_BACK = "⬅️ В главное меню"
 BTN_SHOP_BACK = "⬅️ Назад"
@@ -65,6 +66,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=BTN_SHOP), KeyboardButton(text=BTN_INVENTORY)],
             [KeyboardButton(text=BTN_MY_RACCOON), KeyboardButton(text=BTN_CONTACT_ADMIN)],
             [KeyboardButton(text=BTN_HELP)],
+            [KeyboardButton(text=BTN_LETTER_TO_RACCOON)],
         ],
         resize_keyboard=True,
     )
