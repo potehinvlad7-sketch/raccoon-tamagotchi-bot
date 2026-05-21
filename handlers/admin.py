@@ -19,6 +19,7 @@ from storage import (
     get_storage_stats,
     get_user_by_id,
     refresh_user_metadata,
+    refresh_user_metadata_from_chat,
 )
 
 router = Router()
@@ -40,6 +41,7 @@ def _admin_panel_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
         [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:0")],
         [InlineKeyboardButton(text="💾 Backup JSON", callback_data="admin:backup")],
+        [InlineKeyboardButton(text="🔄 Обновить пользователей", callback_data="admin:refresh_users")],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="admin:main")],
     ])
 
@@ -298,6 +300,36 @@ async def admin_callbacks(callback: CallbackQuery) -> None:
                 await callback.message.answer_document(document=FSInputFile(backup_path))
             else:
                 await callback.message.answer(f"❌ {backup_path}")
+        elif data == "admin:refresh_users":
+            await callback.message.edit_text(
+                "🔄 Обновляю данные пользователей...\nЭто может занять несколько секунд.",
+                reply_markup=_admin_panel_keyboard(),
+            )
+
+            users = get_all_users()
+            total = len(users)
+            updated = 0
+            failed = 0
+
+            for user_id, _ in users:
+                try:
+                    chat = await callback.bot.get_chat(int(user_id))
+                    refresh_user_metadata_from_chat(int(user_id), chat)
+                    updated += 1
+                except Exception:
+                    failed += 1
+
+            result_text = (
+                "🔄 Обновление пользователей завершено\n\n"
+                f"👥 Всего: {total}\n"
+                f"✅ Обновлено: {updated}\n"
+                f"⚠️ Недоступно: {failed}"
+            )
+            if failed > 0:
+                result_text += "\n\nНекоторые пользователи могли заблокировать бота или быть недоступны."
+
+            await callback.message.edit_text(result_text, reply_markup=_admin_panel_keyboard())
+
         elif data == "admin:main":
             await callback.message.answer("Возврат в главное меню.", reply_markup=main_menu_keyboard())
         elif len(parts) == 3 and parts[1] == "users":
