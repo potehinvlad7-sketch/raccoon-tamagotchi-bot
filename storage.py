@@ -386,23 +386,37 @@ def touch_user_needs(user_id: int) -> dict[str, Any] | None:
 
 
 
-def refresh_user_metadata(user_id: int, telegram_user: Any) -> dict[str, Any]:
+def refresh_user_metadata_from_chat(user_id: int, chat: Any) -> dict[str, Any]:
     users = load_users()
     key = str(user_id)
     user = users.get(key)
     if not isinstance(user, dict):
         user = {}
 
-    user["username"] = telegram_user.username if isinstance(getattr(telegram_user, "username", None), str) else None
-    user["first_name"] = telegram_user.first_name if isinstance(getattr(telegram_user, "first_name", None), str) else None
-    user["last_name"] = telegram_user.last_name if isinstance(getattr(telegram_user, "last_name", None), str) else None
-    user["language_code"] = telegram_user.language_code if isinstance(getattr(telegram_user, "language_code", None), str) else None
-    user["is_bot"] = bool(getattr(telegram_user, "is_bot", False))
+    username = getattr(chat, "username", None)
+    first_name = getattr(chat, "first_name", None)
+    last_name = getattr(chat, "last_name", None)
+    is_bot = getattr(chat, "is_bot", None)
+
+    user["username"] = username if isinstance(username, str) else None
+    user["first_name"] = first_name if isinstance(first_name, str) else None
+    user["last_name"] = last_name if isinstance(last_name, str) else None
+    if isinstance(is_bot, bool):
+        user["is_bot"] = is_bot
+
+    language_code = getattr(chat, "language_code", None)
+    if isinstance(language_code, str):
+        user["language_code"] = language_code
+
     user["last_seen_at"] = utc_now().isoformat()
 
     users[key] = user
     save_users(users)
     return user
+
+
+def refresh_user_metadata(user_id: int, telegram_user: Any) -> dict[str, Any]:
+    return refresh_user_metadata_from_chat(user_id, telegram_user)
 
 def has_pet(user_id: int) -> bool:
     user = get_user(user_id)
