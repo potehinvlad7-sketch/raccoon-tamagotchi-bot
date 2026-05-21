@@ -1,5 +1,8 @@
 from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+from aiogram.exceptions import TelegramBadRequest
 
 from keyboards import (
     BTN_BACK,
@@ -19,6 +22,8 @@ from keyboards import (
     BTN_CARE_YARN_BALL,
     BTN_HELP,
     BTN_INVENTORY,
+    BTN_CANCEL,
+    BTN_CONTACT_ADMIN,
     BTN_MY_RACCOON,
     BTN_SHOP,
     BTN_SHOP_BACK,
@@ -33,10 +38,12 @@ from keyboards import (
     main_menu_keyboard,
     build_shop_keyboard,
     build_shop_item_keyboard,
+    cancel_keyboard,
     training_menu_keyboard,
     TRAVEL_LOCATIONS,
     travel_menu_keyboard,
 )
+from config import ADMIN_IDS
 from storage import (
     calculate_enemy_win_chance,
     exp_to_next_level,
@@ -61,6 +68,10 @@ from storage import (
 )
 
 router = Router()
+
+
+class AdminMessageState(StatesGroup):
+    waiting_for_admin_message = State()
 
 MOOD_MAP = {"happy": "счастливый", "normal": "обычное", "tired": "уставший", "distressed": "тревожный"}
 RISK_MAP = {"low": "низкий", "medium": "средний", "high": "высокий"}
@@ -322,6 +333,64 @@ async def show_help(message: Message) -> None:
         "• Потребности меняются со временем, когда ты возвращаешься в бота.",
         reply_markup=main_menu_keyboard(),
     )
+
+
+@router.message(F.text == BTN_CONTACT_ADMIN)
+async def contact_admin_entry(message: Message, state: FSMContext) -> None:
+    await state.set_state(AdminMessageState.waiting_for_admin_message)
+    await message.answer(
+        "✉️ Напишите сообщение для администрации.\n"
+        "Оно будет отправлено администраторам бота.\n\n"
+        "Для отмены нажмите:\n"
+        "❌ Отмена",
+        reply_markup=cancel_keyboard(),
+    )
+
+
+@router.message(AdminMessageState.waiting_for_admin_message, F.text == BTN_CANCEL)
+async def contact_admin_cancel(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await message.answer("Отправка сообщения отменена.", reply_markup=main_menu_keyboard())
+
+
+@router.message(AdminMessageState.waiting_for_admin_message, F.text)
+async def contact_admin_send(message: Message, state: FSMContext) -> None:
+    if message.from_user is None or message.text is None:
+        return
+    if not ADMIN_IDS:
+        await state.clear()
+        await message.answer("Администрация сейчас недоступна.", reply_markup=main_menu_keyboard())
+        return
+
+    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    pet_name = str(pet.get("name", "-")) if isinstance(pet, dict) else "-"
+    pet_level = int(pet.get("level", 1)) if isinstance(pet, dict) and isinstance(pet.get("level", 1), int) else 1
+    username = f"@{message.from_user.username}" if message.from_user.username else "без username"
+    sender_text = (
+        "📨 Новое сообщение администрации\n\n"
+        "👤 Пользователь:\n"
+        f"• ID: {message.from_user.id}\n"
+        f"• Username: {username}\n"
+        f"• Имя питомца: {pet_name}\n"
+        f"• Уровень: {pet_level}"
+    )
+    message_text = f"💬 Сообщение:\n\n{message.text}"
+
+    for admin_id in ADMIN_IDS:
+        try:
+            await message.bot.send_message(admin_id, sender_text)
+            await message.bot.send_message(admin_id, message_text)
+        except TelegramBadRequest:
+            continue
+
+    await state.clear()
+    await message.answer("✅ Сообщение отправлено администрации.", reply_markup=main_menu_keyboard())
+
+
+@router.message(AdminMessageState.waiting_for_admin_message)
+async def contact_admin_non_text(message: Message) -> None:
+    await message.answer("Пожалуйста, отправьте текстовое сообщение.")
 
 
 @router.message(F.text == BTN_CARE)

@@ -10,6 +10,8 @@ BTN_SHOP = "🛒 Магазин"
 BTN_INVENTORY = "🎒 Инвентарь"
 BTN_MY_RACCOON = "🦝 Мой енот"
 BTN_HELP = "❔ Помощь"
+BTN_CONTACT_ADMIN = "📨 Написать админу"
+BTN_CANCEL = "❌ Отмена"
 BTN_BACK = "⬅️ В главное меню"
 BTN_SHOP_BACK = "⬅️ Назад"
 BTN_BATTLE_ATTACK = "⚔️ Атаковать"
@@ -61,7 +63,8 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=BTN_STATUS), KeyboardButton(text=BTN_CARE)],
             [KeyboardButton(text=BTN_TRAINING), KeyboardButton(text=BTN_TRAVEL)],
             [KeyboardButton(text=BTN_SHOP), KeyboardButton(text=BTN_INVENTORY)],
-            [KeyboardButton(text=BTN_MY_RACCOON), KeyboardButton(text=BTN_HELP)],
+            [KeyboardButton(text=BTN_MY_RACCOON), KeyboardButton(text=BTN_CONTACT_ADMIN)],
+            [KeyboardButton(text=BTN_HELP)],
         ],
         resize_keyboard=True,
     )
@@ -134,3 +137,10 @@ def build_shop_item_keyboard(category_id: str, items: list[dict]) -> InlineKeybo
         rows.append([build_buy_button(item_id, item_name, item_emoji)])
     rows.append([InlineKeyboardButton(text="⬅️ Категории", callback_data=f"shop_back:{category_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def cancel_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=BTN_CANCEL)]],
+        resize_keyboard=True,
+    )
