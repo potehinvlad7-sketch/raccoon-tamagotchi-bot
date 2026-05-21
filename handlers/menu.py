@@ -48,6 +48,7 @@ from keyboards import (
     travel_menu_keyboard,
 )
 from config import ADMIN_IDS
+from handlers.admin_profile import format_admin_user_full
 from storage import (
     calculate_enemy_win_chance,
     exp_to_next_level,
@@ -309,115 +310,8 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
 async def show_status(message: Message) -> None:
     if message.from_user is None:
         return
-    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
-    pet = (user or {}).get("pet") if isinstance(user, dict) else None
-    if not isinstance(pet, dict):
-        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
-        return
-    if isinstance(pet.get("battle"), dict):
-        battle = pet["battle"]
-        enemy = get_enemy(str(battle.get("enemy_id", "field_mouse")))
-        chance = max(15, min(90, int(battle.get("win_chance", calculate_enemy_win_chance(pet, enemy)))))
-        await message.answer(
-            "⚠️ У енота уже есть активная стычка.\n\n"
-            f"Противник: {enemy.get('name', 'Неизвестный враг')} {enemy.get('emoji', '')}\n"
-            f"Шанс победы: {chance}%\n\n"
-            "Выбери действие:",
-            reply_markup=battle_menu_keyboard(),
-        )
-        return
-    await message.answer(_status_text(pet), reply_markup=main_menu_keyboard())
-
-
-@router.message(F.text == BTN_MY_RACCOON)
-async def show_raccoon(message: Message) -> None:
-    if message.from_user is None:
-        return
-    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
-    pet = (user or {}).get("pet") if isinstance(user, dict) else None
-    if not isinstance(pet, dict):
-        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
-        return
-    await message.answer(_raccoon_profile_text(pet), reply_markup=main_menu_keyboard())
-
-
-@router.message(Command("мой_енот"))
-async def show_raccoon_group_command(message: Message) -> None:
-    if message.from_user is None:
-        return
-    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
-    pet = (user or {}).get("pet") if isinstance(user, dict) else None
-    if not isinstance(pet, dict):
-        await message.answer("У вас пока нет енотика.")
-        return
-    await message.answer(_group_raccoon_profile_text(pet))
-
-
-@router.message(F.text == BTN_INVENTORY)
-async def show_inventory(message: Message) -> None:
-    if message.from_user is None:
-        return
-    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
-    pet = (user or {}).get("pet") if isinstance(user, dict) else None
-    if not isinstance(pet, dict):
-        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
-        return
-    await message.answer(_inventory_text(pet), reply_markup=main_menu_keyboard())
-
-
-@router.message(F.text == BTN_HELP)
-async def show_help(message: Message) -> None:
-    await message.answer(
-        "🦝 Это RPG-тамагочи про енота.\n\n"
-        "• Уход поддерживает сытость, чистоту, любовь и энергию.\n"
-        "• Тренировки тратят энергию и свитки, дают навыки и опыт.\n"
-        "• Путешествия дают опыт, монеты и случайные события.\n"
-        "• Магазин пополняет припасы.\n"
-        "• Инвентарь показывает монеты и предметы.\n"
-        "• Потребности меняются со временем, когда ты возвращаешься в бота.",
-        reply_markup=main_menu_keyboard(),
-    )
-
-
-@router.message(F.text.in_({BTN_CONTACT_ADMIN, BTN_LETTER_TO_RACCOON}))
-async def contact_admin_entry(message: Message, state: FSMContext) -> None:
-    await state.set_state(AdminMessageState.waiting_for_admin_message)
-    await message.answer(
-        "💌 Напишите свое анонимное желание, и ваш енотик передаст его ArtRaccoon)))\n\n"
-        "Для отмены нажмите:\n"
-        "❌ Отмена",
-        reply_markup=cancel_keyboard(),
-    )
-
-
-@router.message(AdminMessageState.waiting_for_admin_message, F.text == BTN_CANCEL)
-async def contact_admin_cancel(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer("Отправка письма отменена.", reply_markup=main_menu_keyboard())
-
-
-@router.message(AdminMessageState.waiting_for_admin_message, F.text)
-async def contact_admin_send(message: Message, state: FSMContext) -> None:
-    if message.from_user is None or message.text is None:
-        return
-    if not ADMIN_IDS:
-        await state.clear()
-        await message.answer("Администрация сейчас недоступна.", reply_markup=main_menu_keyboard())
-        return
-
-    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
-    pet = (user or {}).get("pet") if isinstance(user, dict) else None
-    pet_name = str(pet.get("name", "без питомца")) if isinstance(pet, dict) else "без питомца"
-    pet_level = int(pet.get("level", 1)) if isinstance(pet, dict) and isinstance(pet.get("level", 1), int) else 1
-    username = f"@{message.from_user.username}" if message.from_user.username else "без username"
-    sender_text = (
-        "💌 Енотик принес новое письмо\n\n"
-        "👤 Пользователь:\n"
-        f"• ID: {message.from_user.id}\n"
-        f"• Username: {username}\n"
-        f"• Имя питомца: {pet_name}\n"
-        f"• Уровень: {pet_level}"
-    )
+    touch_user_needs(message.from_user.id)
+    sender_text = "💌 Енотик принес новое письмо\n\n" + format_admin_user_full(message.from_user.id)
     message_text = f"💬 Письмо:\n\n{message.text}"
 
     for admin_id in ADMIN_IDS:
