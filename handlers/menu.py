@@ -236,9 +236,9 @@ def _travel_event_line(event: dict | None) -> str:
     if not isinstance(event, dict):
         return "🌿 Событие: спокойная прогулка."
     if event.get("id") == "retreat_high_route":
-        return "🌫️ Маршрут слишком опасен — енот отступил и вернулся без добычи."
+        return "👑 Хранитель пути преградил дорогу.\nПока он не побеждён, новая локация не откроется."
     if bool(event.get("is_boss")):
-        return "👑 Событие: хранитель пути преграждает дорогу."
+        return "👑 Хранитель пути преградил дорогу.\nПока он не побеждён, новая локация не откроется."
     if event.get("type") == "enemy":
         return "⚔️ Событие: встреча с противником."
     return "🌿 Событие: спокойная прогулка."
@@ -358,10 +358,10 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
     boss_line = ""
     if int(battle.get("boss_unlocked_level", 0)) > 0:
         unlocked_level = int(battle.get("boss_unlocked_level", 0))
-        boss_line = f"\n\n🏆 Хранитель побеждён!\nПуть к уровню {unlocked_level} открыт."
+        boss_line = "\n\nПуть открыт! Новая локация стала доступна."
     elif battle.get("boss_failed"):
-        boss_line = "\n\n🛡️ Хранитель всё ещё блокирует путь.\nПобедите его, чтобы открыть следующий маршрут."
-    event_line = "👑 Событие: хранитель пути преграждал дорогу." if battle.get("is_boss") else "⚔️ Событие: встреча с противником."
+        boss_line = "\n\nПуть пока закрыт. Подкопите опыт, восстановите силы и попробуйте снова."
+    event_line = "👑 Хранитель пути преградил дорогу.\nПока он не побеждён, новая локация не откроется." if battle.get("is_boss") else "⚔️ Событие: встреча с противником."
     item_lines = [
         f"• {ITEM_LABELS[item]} x{amount}"
         for item, amount in (battle.get("items_delta", {}) if isinstance(battle.get("items_delta"), dict) else {}).items()
