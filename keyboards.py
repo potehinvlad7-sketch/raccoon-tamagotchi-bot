@@ -45,8 +45,20 @@ TRAVEL_LOCATIONS = {
     "old_deadfall": {"button": "🪵 Старый бурелом", "name": "Старый бурелом", "min_level": 3},
     "misty_stream": {"button": "💧 Туманный ручей", "name": "Туманный ручей", "min_level": 5},
     "stone_ravine": {"button": "🪨 Каменный овраг", "name": "Каменный овраг", "min_level": 7},
+    "abandoned_watchhut": {"button": "🌲 Заброшенная сторожка", "name": "Заброшенная сторожка", "min_level": 8},
     "forest_ruins": {"button": "🏚 Лесные руины", "name": "Лесные руины", "min_level": 10},
+    "glowing_mushroom_grove": {"button": "🍄 Светящийся грибной бор", "name": "Светящийся грибной бор", "min_level": 12},
+    "foggy_swamp": {"button": "🌫 Туманное болото", "name": "Туманное болото", "min_level": 18},
+    "stone_pass": {"button": "🪨 Каменный перевал", "name": "Каменный перевал", "min_level": 25},
+    "old_settlement_ruins": {"button": "🏚 Руины старого поселения", "name": "Руины старого поселения", "min_level": 35},
+    "starry_thicket": {"button": "🌌 Звёздная чаща", "name": "Звёздная чаща", "min_level": 45},
+    "underground_roots": {"button": "🕯 Подземные корни", "name": "Подземные корни", "min_level": 55},
+    "giants_graveyard": {"button": "🦴 Кладбище великанов", "name": "Кладбище великанов", "min_level": 65},
+    "forgotten_raccoon_castle": {"button": "🏰 Забытый енотовый замок", "name": "Забытый енотовый замок", "min_level": 75},
+    "black_grove": {"button": "🌑 Чёрная роща", "name": "Чёрная роща", "min_level": 85},
+    "path_of_legends": {"button": "👑 Тропа легенд", "name": "Тропа легенд", "min_level": 95},
 }
+
 
 
 def gender_keyboard() -> ReplyKeyboardMarkup:
