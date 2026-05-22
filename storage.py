@@ -51,7 +51,7 @@ LOWER_ROUTE_ITEM_DROP_CHANCE = 0.01
 CURRENT_ROUTE_ITEM_DROP_BASE = 0.08
 CURRENT_ROUTE_ITEM_DROP_MAX = 0.15
 BOSS_ROUTE_ITEM_DROP_CHANCE = 0.12
-BOSS_GATE_EXP_RATIO = 0.85
+BOSS_GATE_EXP_RATIO = 0.50
 
 TRAVEL_LOCATIONS = {
     "forest_clearing": {"button": "🌱 Лесная поляна", "name": "Лесная поляна", "min_level": 1, "costs": {'energy': 14, 'satiety': 7, 'cleanliness': 3}, "rewards": {'exp': 10, 'currency': 5}},
@@ -1078,6 +1078,27 @@ def calculate_enemy_win_chance(pet: dict[str, Any], enemy: dict[str, Any]) -> in
     return max(15, min(90, chance))
 
 
+def calculate_boss_win_chance(pet: dict[str, Any], enemy: dict[str, Any], required_exp: int) -> int:
+    skills = pet.get("skills", {}) if isinstance(pet.get("skills"), dict) else {}
+    strength = skills.get("strength", 0) if isinstance(skills.get("strength"), int) else 0
+    agility = skills.get("agility", 0) if isinstance(skills.get("agility"), int) else 0
+    instinct = skills.get("instinct", 0) if isinstance(skills.get("instinct"), int) else 0
+    current_exp = pet.get("exp", 0) if isinstance(pet.get("exp"), int) else 0
+    difficulty = enemy.get("difficulty", 1) if isinstance(enemy.get("difficulty"), int) else 1
+
+    exp_progress = 0.0
+    if required_exp > 0:
+        exp_progress = max(0.0, min(1.0, current_exp / required_exp))
+
+    # At threshold odds should stay low, and then improve slightly with EXP.
+    exp_factor = max(0.0, (exp_progress - BOSS_GATE_EXP_RATIO) / max(0.0001, 1.0 - BOSS_GATE_EXP_RATIO))
+    base = 20
+    skill_score = strength * 4 + agility * 3 + instinct
+    difficulty_penalty = difficulty * 2
+    chance = int(base + skill_score + (exp_factor * 10) - difficulty_penalty)
+    return max(15, min(85, chance))
+
+
 def choose_travel_event(pet: dict[str, Any], location_id: str) -> dict[str, Any]:
     skills = pet.get("skills")
     instinct = skills.get("instinct", 0) if isinstance(skills, dict) else 0
@@ -1204,6 +1225,9 @@ def perform_travel(user_id: int, location_id: str, allow_above_level: bool = Fal
     if event.get("type") == "enemy":
         enemy = event.get("enemy", {}) if isinstance(event.get("enemy"), dict) else {}
         chance = calculate_enemy_win_chance(pet, enemy)
+        if bool(event.get("is_boss")):
+            required_exp = exp_to_next_level(level)
+            chance = calculate_boss_win_chance(pet, enemy, required_exp if isinstance(required_exp, int) else 0)
         if relation == "lower":
             chance = max(chance, 90)
         pet["battle"] = {
@@ -1272,9 +1296,17 @@ def resolve_battle_attack(user_id: int) -> tuple[bool, dict[str, Any] | None]:
     relation = str(travel_context.get("relation", "current"))
     is_boss = bool(travel_context.get("is_boss"))
     if win:
-        reward = get_travel_reward_for_relation(pet, TRAVEL_LOCATIONS.get(str(battle.get("location_id", "")), {}), relation, "win")
-        extra_exp = reward["exp"]
-        extra_currency = reward["currency"]
+        extra_exp = 0
+        extra_currency = 0
+        if not is_boss:
+            reward = get_travel_reward_for_relation(pet, TRAVEL_LOCATIONS.get(str(battle.get("location_id", "")), {}), relation, "win")
+            extra_exp = reward["exp"]
+            extra_currency = reward["currency"]
+        else:
+            required = exp_to_next_level(int(pet.get("level", 1)))
+            current_exp = int(pet.get("exp", 0)) if isinstance(pet.get("exp"), int) else 0
+            if isinstance(required, int) and required > current_exp:
+                extra_exp = required - current_exp
         result["levels_gained"] = add_exp(pet, extra_exp)
         result["travel_context"]["levels_gained"] = int(result["travel_context"].get("levels_gained", 0)) + result["levels_gained"]
         pet["currency"] = int(pet.get("currency", 0)) + extra_currency if isinstance(pet.get("currency"), int) else extra_currency
@@ -1303,6 +1335,7 @@ def resolve_battle_attack(user_id: int) -> tuple[bool, dict[str, Any] | None]:
                 result["travel_context"]["level_before"] = level_before
                 result["travel_context"]["level_after"] = level_after
                 result["travel_context"]["level_gained"] = level_after > level_before
+                result["travel_context"]["boss_missing_exp_reward"] = extra_exp
             else:
                 result["travel_context"]["boss_defeated"] = False
     else:
