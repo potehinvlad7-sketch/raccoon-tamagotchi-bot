@@ -45,6 +45,12 @@ NEEDS_TICK_MINUTES = 30
 
 MAX_LEVEL = 100
 LEGEND_LEVEL = 100
+LOWER_ROUTE_ENEMY_CHANCE = 0.05
+CURRENT_ROUTE_ENEMY_CHANCE = 0.30
+LOWER_ROUTE_ITEM_DROP_CHANCE = 0.01
+CURRENT_ROUTE_ITEM_DROP_BASE = 0.08
+CURRENT_ROUTE_ITEM_DROP_MAX = 0.15
+BOSS_ROUTE_ITEM_DROP_CHANCE = 0.12
 
 TRAVEL_LOCATIONS = {
     "forest_clearing": {"button": "🌱 Лесная поляна", "name": "Лесная поляна", "min_level": 1, "costs": {'energy': 14, 'satiety': 7, 'cleanliness': 3}, "rewards": {'exp': 10, 'currency': 5}},
@@ -318,6 +324,13 @@ LOCATION_ENEMIES = {
 }
 
 
+LOCATION_BOSS_BY_LEVEL: dict[int, str] = {}
+for _location_id, _location in TRAVEL_LOCATIONS.items():
+    _level = int(_location.get("min_level", 1))
+    _enemy_ids = LOCATION_ENEMIES.get(_location_id, [])
+    if _enemy_ids and _level not in LOCATION_BOSS_BY_LEVEL:
+        LOCATION_BOSS_BY_LEVEL[_level] = _enemy_ids[0]
+
 ENEMY_TEXTS = {
     "field_mouse": {"event": "🐭 Полевая мышь выскочила из травы и попыталась утащить находку.", "win": "Енот распушил хвост, сделал важный выпад и победил.", "lose": "Мышь юркнула в кусты, а енот остался озадаченно шуршать листвой."},
     "angry_crow": {"event": "🐦‍⬛ Сердитая ворона налетела сверху и громко потребовала всё блестящее.", "win": "Енот ловко отскочил, шикнул на ворону и отстоял добычу.", "lose": "Енот героически сделал вид, что это была тактическая прогулка назад."},
@@ -508,6 +521,21 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
     if "battle" not in pet:
         pet["battle"] = DEFAULT_BATTLE
         changed = True
+    defeated = pet.get("defeated_boss_levels")
+    current_level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
+    if not isinstance(defeated, list):
+        pet["defeated_boss_levels"] = list(range(2, current_level + 1))
+        changed = True
+    else:
+        cleaned = sorted({lvl for lvl in defeated if isinstance(lvl, int) and 1 < lvl <= MAX_LEVEL})
+        for lvl in range(2, current_level + 1):
+            if lvl not in cleaned:
+                cleaned.append(lvl)
+                changed = True
+        cleaned.sort()
+        if cleaned != defeated:
+            pet["defeated_boss_levels"] = cleaned
+            changed = True
 
     updated_at = parse_datetime(pet.get("updated_at"))
     if updated_at is None:
@@ -677,6 +705,7 @@ def create_pet(user_id: int, name: str, gender: str) -> dict[str, Any]:
             "skills": DEFAULT_SKILLS.copy(),
             "inventory": DEFAULT_INVENTORY.copy(),
             "travel": DEFAULT_TRAVEL.copy(),
+            "defeated_boss_levels": [],
             "created_at": now,
             "updated_at": now,
             "last_needs_update_at": now,
@@ -834,6 +863,66 @@ def exp_to_next_level(level: int) -> int | None:
     return 15000 + (safe_level - 80) * 1200
 
 
+def get_route_relation(pet_level: int, location: dict[str, Any]) -> str:
+    location_level = int(location.get("min_level", 1))
+    if location_level < pet_level:
+        return "lower"
+    if location_level > pet_level:
+        return "higher"
+    return "current"
+
+
+def is_level_unlocked(pet: dict[str, Any], level: int) -> bool:
+    if level <= 1:
+        return True
+    defeated = pet.get("defeated_boss_levels", [])
+    return isinstance(defeated, list) and level in defeated
+
+
+def mark_boss_defeated(pet: dict[str, Any], level: int) -> None:
+    if level <= 1:
+        return
+    defeated = pet.get("defeated_boss_levels")
+    if not isinstance(defeated, list):
+        pet["defeated_boss_levels"] = []
+        defeated = pet["defeated_boss_levels"]
+    if level not in defeated:
+        defeated.append(level)
+        defeated.sort()
+
+
+def get_next_required_boss_level(pet: dict[str, Any]) -> int | None:
+    level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
+    if level >= MAX_LEVEL:
+        return None
+    return level + 1
+
+
+def choose_travel_enemy(location_id: str, relation: str, pet_level: int) -> str:
+    if relation == "higher":
+        return LOCATION_BOSS_BY_LEVEL.get(min(MAX_LEVEL, pet_level + 1), "legend_keeper")
+    enemy_ids = LOCATION_ENEMIES.get(location_id, [])
+    if not enemy_ids:
+        return "field_mouse"
+    if relation == "lower":
+        weaker = [enemy_id for enemy_id in enemy_ids if int(ENEMY_CATALOG.get(enemy_id, {}).get("difficulty", 999)) <= 8]
+        if weaker:
+            return random.choice(weaker)
+    return random.choice(enemy_ids)
+
+
+def get_travel_reward_for_relation(pet: dict[str, Any], location: dict[str, Any], relation: str, enemy_result: str) -> dict[str, int]:
+    level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
+    if relation == "lower":
+        return {"exp": 1, "currency": 1}
+    if relation == "current":
+        if enemy_result == "win":
+            return {"exp": max(2, int(3 + level * 0.35)), "currency": max(2, int(2 + level * 0.25))}
+        return {"exp": max(1, int(1 + level * 0.15)), "currency": max(1, int(1 + level * 0.10))}
+    target_level = int(location.get("min_level", level))
+    return {"exp": max(3, int(4 + target_level * 0.40)), "currency": max(3, int(3 + target_level * 0.30))}
+
+
 def apply_level_ups(pet: dict[str, Any]) -> int:
     level = pet.get("level", 1)
     exp = pet.get("exp", 0)
@@ -848,6 +937,11 @@ def apply_level_ups(pet: dict[str, Any]) -> int:
     while pet["level"] < MAX_LEVEL:
         required = exp_to_next_level(pet["level"])
         if required is None or pet["exp"] < required:
+            break
+        next_level = pet["level"] + 1
+        if not is_level_unlocked(pet, next_level):
+            pet["level_up_blocked"] = True
+            pet["blocked_boss_level"] = next_level
             break
         pet["exp"] -= required
         pet["level"] += 1
@@ -1015,9 +1109,10 @@ def perform_travel(user_id: int, location_id: str, allow_above_level: bool = Fal
     for need, value in spent.items():
         pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) - value)
 
-    rewards = location.get("rewards", {})
-    base_exp = int(rewards.get("exp", 0))
-    base_currency = int(rewards.get("currency", 0))
+    relation = get_route_relation(level, location)
+    base_reward = get_travel_reward_for_relation(pet, location, relation, "peaceful")
+    base_exp = base_reward["exp"]
+    base_currency = base_reward["currency"]
     pet["currency"] = int(pet.get("currency", 0)) + base_currency if isinstance(pet.get("currency"), int) else base_currency
     levels_gained = add_exp(pet, base_exp)
 
@@ -1026,7 +1121,16 @@ def perform_travel(user_id: int, location_id: str, allow_above_level: bool = Fal
         pet["inventory"] = DEFAULT_INVENTORY.copy()
         inventory = pet["inventory"]
 
-    event = choose_travel_event(pet, location_id)
+    event = {"id": "peaceful", "type": "neutral", "effects": {}}
+    if relation == "higher":
+        enemy_id = choose_travel_enemy(location_id, relation, level)
+        event = {"id": f"boss_{enemy_id}", "type": "enemy", "enemy_id": enemy_id, "enemy": get_enemy(enemy_id), "is_boss": True}
+    elif relation == "current" and random.random() < CURRENT_ROUTE_ENEMY_CHANCE:
+        enemy_id = choose_travel_enemy(location_id, relation, level)
+        event = {"id": f"enemy_{enemy_id}", "type": "enemy", "enemy_id": enemy_id, "enemy": get_enemy(enemy_id)}
+    elif relation == "lower" and random.random() < LOWER_ROUTE_ENEMY_CHANCE:
+        enemy_id = choose_travel_enemy(location_id, relation, level)
+        event = {"id": f"enemy_{enemy_id}", "type": "enemy", "enemy_id": enemy_id, "enemy": get_enemy(enemy_id)}
     effects = event.get("effects", {}) if isinstance(event.get("effects"), dict) else {}
     event_exp = int(effects.get("exp", 0)) if isinstance(effects.get("exp", 0), int) else 0
     event_currency = int(effects.get("currency", 0)) if isinstance(effects.get("currency", 0), int) else 0
@@ -1050,6 +1154,8 @@ def perform_travel(user_id: int, location_id: str, allow_above_level: bool = Fal
     if event.get("type") == "enemy":
         enemy = event.get("enemy", {}) if isinstance(event.get("enemy"), dict) else {}
         chance = calculate_enemy_win_chance(pet, enemy)
+        if relation == "lower":
+            chance = max(chance, 90)
         pet["battle"] = {
             "enemy_id": event.get("enemy_id", "field_mouse"),
             "location_id": location_id,
@@ -1064,6 +1170,9 @@ def perform_travel(user_id: int, location_id: str, allow_above_level: bool = Fal
                 "spent_cleanliness": spent.get("cleanliness", 0),
                 "items_delta": items_delta,
                 "levels_gained": levels_gained,
+                "relation": relation,
+                "is_boss": bool(event.get("is_boss")),
+                "boss_level": int(location.get("min_level", level)) if event.get("is_boss") else None,
             },
             "created_at": utc_now().isoformat(),
         }
@@ -1110,28 +1219,42 @@ def resolve_battle_attack(user_id: int) -> tuple[bool, dict[str, Any] | None]:
     pet["inventory"] = inventory
     travel_context = battle.get("travel_context", {}) if isinstance(battle.get("travel_context"), dict) else {}
     result = {"win": win, "chance": chance, "enemy": enemy, "drop_items": {}, "levels_gained": 0, "travel_context": travel_context, "pet": pet, "pet_name": pet.get("name", "Енот")}
+    relation = str(travel_context.get("relation", "current"))
+    is_boss = bool(travel_context.get("is_boss"))
     if win:
-        extra_exp = difficulty + 2
-        extra_currency = max(2, difficulty)
+        reward = get_travel_reward_for_relation(pet, TRAVEL_LOCATIONS.get(str(battle.get("location_id", "")), {}), relation, "win")
+        extra_exp = reward["exp"]
+        extra_currency = reward["currency"]
         result["levels_gained"] = add_exp(pet, extra_exp)
         result["travel_context"]["levels_gained"] = int(result["travel_context"].get("levels_gained", 0)) + result["levels_gained"]
         pet["currency"] = int(pet.get("currency", 0)) + extra_currency if isinstance(pet.get("currency"), int) else extra_currency
         result["extra_exp"] = extra_exp
         result["extra_currency"] = extra_currency
-        if random.random() < 0.22:
+        drop_chance = LOWER_ROUTE_ITEM_DROP_CHANCE if relation == "lower" else min(CURRENT_ROUTE_ITEM_DROP_MAX, CURRENT_ROUTE_ITEM_DROP_BASE + (pet.get("skills", {}).get("instinct", 0) * 0.005))
+        if is_boss:
+            drop_chance = BOSS_ROUTE_ITEM_DROP_CHANCE
+        if random.random() < drop_chance:
             drop_item = random.choice(["food", "soap", "toy", "energy_potion", "hearty_snack", "comb"])
             inventory[drop_item] = int(inventory.get(drop_item, 0)) + 1
             result["drop_items"][drop_item] = 1
-        if random.random() < 0.10:
+        if relation != "lower" and random.random() < 0.08:
             scroll = random.choice(["strength_scroll", "agility_scroll", "instinct_scroll"])
             inventory[scroll] = int(inventory.get(scroll, 0)) + 1
             result["drop_items"][scroll] = result["drop_items"].get(scroll, 0) + 1
+        if is_boss:
+            boss_level = int(travel_context.get("boss_level", 0))
+            if boss_level > 1:
+                mark_boss_defeated(pet, boss_level)
+                result["boss_unlocked_level"] = boss_level
+                result["levels_gained"] += apply_level_ups(pet)
     else:
         extra = difficulty // 3
         penalties = {"energy": -(10 + extra), "cleanliness": -(8 + extra), "love": -(6 + extra), "satiety": -(4 + extra)}
         for need, delta in penalties.items():
             pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) + delta)
         result["penalties"] = penalties
+        if is_boss:
+            result["boss_failed"] = True
     pet["battle"] = None
     update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()

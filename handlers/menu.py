@@ -142,6 +142,15 @@ def format_battle_intro(pet_name: str, location_id: str, enemy_id: str) -> str:
     )
 
 
+def _blocked_levelup_text(pet: dict) -> str:
+    if pet.get("level_up_blocked"):
+        return (
+            "\n\n🔒 Енотик набрал достаточно опыта, но путь дальше закрыт.\n"
+            "Победите босса следующей локации, чтобы открыть новый уровень."
+        )
+    return ""
+
+
 def _resolve_travel_location_id(button_text: str | None) -> str | None:
     if not button_text:
         return None
@@ -334,6 +343,12 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
     level_up_line = ""
     if int(battle.get("levels_gained", 0)) > 0:
         level_up_line = f"\n\n✨ Новый уровень! {pet_name} достиг уровня {pet.get('level', 1)}."
+    boss_line = ""
+    if int(battle.get("boss_unlocked_level", 0)) > 0:
+        unlocked_level = int(battle.get("boss_unlocked_level", 0))
+        boss_line = f"\n\n🏆 Босс побеждён!\nПуть к уровню {unlocked_level} открыт."
+    elif battle.get("boss_failed"):
+        boss_line = "\n\n🛡️ Босс удержал проход.\nПобедите его, чтобы открыть путь к следующему уровню."
     regular_event = _localize_event(battle.get("event_id")) if battle.get("event_id") else "пока не было"
     item_lines = [
         f"• {ITEM_LABELS[item]} x{amount}"
@@ -355,7 +370,9 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
         f"{section_title}\n"
         + "\n".join(section_lines)
         + ("\n\nДополнительно из события:\n" + "\n".join(item_lines) if item_lines else "")
+        + boss_line
         + level_up_line
+        + _blocked_levelup_text(pet)
     )
 
 @router.message(F.text == BTN_STATUS)
