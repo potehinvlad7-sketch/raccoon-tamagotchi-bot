@@ -356,12 +356,16 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
     if int(battle.get("levels_gained", 0)) > 0:
         level_up_line = f"\n\n✨ Новый уровень! {pet_name} достиг уровня {pet.get('level', 1)}."
     boss_line = ""
-    if int(battle.get("boss_unlocked_level", 0)) > 0:
-        unlocked_level = int(battle.get("boss_unlocked_level", 0))
-        boss_line = "\n\nПуть открыт! Новая локация стала доступна."
-    elif battle.get("boss_failed"):
-        boss_line = "\n\nПуть пока закрыт. Подкопите опыт, восстановите силы и попробуйте снова."
-    event_line = "👑 Хранитель пути преградил дорогу.\nПока он не побеждён, новая локация не откроется." if battle.get("is_boss") else "⚔️ Событие: встреча с противником."
+    event_line = "⚔️ Событие: встреча с противником."
+    if battle.get("is_boss"):
+        if battle.get("boss_failed") or battle.get("boss_blocked"):
+            event_line = "👑 Хранитель пути преградил дорогу.\nПока он не побеждён, новая локация не откроется."
+            boss_line = "\n\nПуть пока закрыт. Подкопите опыт, восстановите силы и попробуйте снова."
+        elif battle.get("boss_defeated"):
+            if battle.get("level_gained"):
+                event_line = "👑 Хранитель пути повержен.\nНовая локация открыта. Енотик стал сильнее и сделал шаг дальше."
+            else:
+                event_line = "👑 Хранитель пути повержен.\nПуть открыт, но енотику ещё нужно накопить опыт для следующего уровня."
     item_lines = [
         f"• {ITEM_LABELS[item]} x{amount}"
         for item, amount in (battle.get("items_delta", {}) if isinstance(battle.get("items_delta"), dict) else {}).items()
