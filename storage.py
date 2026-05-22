@@ -47,6 +47,7 @@ MAX_LEVEL = 100
 LEGEND_LEVEL = 100
 LOWER_ROUTE_ENEMY_CHANCE = 0.05
 CURRENT_ROUTE_ENEMY_CHANCE = 0.30
+BOSS_GATE_EXP_RATIO = 0.85
 LOWER_ROUTE_ITEM_DROP_CHANCE = 0.01
 CURRENT_ROUTE_ITEM_DROP_BASE = 0.08
 CURRENT_ROUTE_ITEM_DROP_MAX = 0.15
@@ -898,6 +899,17 @@ def get_next_required_boss_level(pet: dict[str, Any]) -> int | None:
     return level + 1
 
 
+def can_challenge_next_boss(pet: dict[str, Any]) -> bool:
+    level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
+    if level >= MAX_LEVEL:
+        return False
+    next_exp = exp_to_next_level(level)
+    if next_exp is None or next_exp <= 0:
+        return False
+    current_exp = pet.get("exp", 0) if isinstance(pet.get("exp"), int) else 0
+    return current_exp >= int(next_exp * BOSS_GATE_EXP_RATIO)
+
+
 def choose_travel_enemy(location_id: str, relation: str, pet_level: int) -> str:
     if relation == "higher":
         location = TRAVEL_LOCATIONS.get(location_id, {})
@@ -1124,11 +1136,16 @@ def perform_travel(user_id: int, location_id: str, allow_above_level: bool = Fal
         pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) - value)
 
     relation = get_route_relation(level, location)
-    base_reward = get_travel_reward_for_relation(pet, location, relation, "peaceful")
-    base_exp = base_reward["exp"]
-    base_currency = base_reward["currency"]
-    pet["currency"] = int(pet.get("currency", 0)) + base_currency if isinstance(pet.get("currency"), int) else base_currency
-    levels_gained = add_exp(pet, base_exp)
+    can_challenge_boss = relation == "higher" and can_challenge_next_boss(pet)
+    base_exp = 0
+    base_currency = 0
+    levels_gained = 0
+    if relation != "higher":
+        base_reward = get_travel_reward_for_relation(pet, location, relation, "peaceful")
+        base_exp = base_reward["exp"]
+        base_currency = base_reward["currency"]
+        pet["currency"] = int(pet.get("currency", 0)) + base_currency if isinstance(pet.get("currency"), int) else base_currency
+        levels_gained = add_exp(pet, base_exp)
 
     inventory = pet.get("inventory")
     if not isinstance(inventory, dict):
@@ -1136,9 +1153,11 @@ def perform_travel(user_id: int, location_id: str, allow_above_level: bool = Fal
         inventory = pet["inventory"]
 
     event = {"id": "peaceful", "type": "neutral", "effects": {}}
-    if relation == "higher":
+    if relation == "higher" and can_challenge_boss:
         enemy_id = choose_travel_enemy(location_id, relation, level)
         event = {"id": f"boss_{enemy_id}", "type": "enemy", "enemy_id": enemy_id, "enemy": get_enemy(enemy_id), "is_boss": True}
+    elif relation == "higher":
+        event = {"id": "higher_route_blocked", "type": "blocked", "effects": {}}
     elif relation == "current" and random.random() < CURRENT_ROUTE_ENEMY_CHANCE:
         enemy_id = choose_travel_enemy(location_id, relation, level)
         event = {"id": f"enemy_{enemy_id}", "type": "enemy", "enemy_id": enemy_id, "enemy": get_enemy(enemy_id)}

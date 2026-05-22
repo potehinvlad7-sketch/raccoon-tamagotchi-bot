@@ -237,6 +237,8 @@ def _travel_event_line(event: dict | None) -> str:
         return "🌿 Событие: спокойная прогулка."
     if bool(event.get("is_boss")):
         return "👑 Событие: босс охраняет путь."
+    if event.get("id") == "higher_route_blocked":
+        return "🌫️ Событие: тропа слишком опасна — енот отступил и набирается опыта для битвы с хранителем."
     if event.get("type") == "enemy":
         return "⚔️ Событие: встреча с противником."
     return "🌿 Событие: спокойная прогулка."
@@ -792,6 +794,8 @@ async def battle_attack(message: Message) -> None:
             f"• ✨ Опыт: +{result.get('extra_exp', 0)}",
             f"• 🪙 Монеты: +{result.get('extra_currency', 0)}",
         ]
+        if int(result.get("boss_unlocked_level", 0)) > 0:
+            lines.append("Путь вперёд открыт — можно закрепить прогресс и перейти к новой тропе уровня.")
         for item, amount in (result.get("drop_items", {}) if isinstance(result.get("drop_items"), dict) else {}).items():
             if item in ITEM_LABELS and isinstance(amount, int) and amount > 0:
                 lines.append(f"• {ITEM_LABELS[item]} x{amount}")
@@ -805,6 +809,7 @@ async def battle_attack(message: Message) -> None:
             "⚔️ Бой:",
             [
                 f"{str(result.get('pet_name', 'Енот'))} проиграл: {enemy.get('name', 'Неизвестный враг')}.",
+                "Хранитель не пропустил дальше — нужно стать сильнее и попробовать снова.",
                 f"Потери: ⚡ {penalties.get('energy', 0)}, 🧼 {penalties.get('cleanliness', 0)}, 💞 {penalties.get('love', 0)}, 🍽 {penalties.get('satiety', 0)}",
             ],
         ),
