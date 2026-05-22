@@ -52,6 +52,7 @@ from handlers.images import send_optional_screen
 from storage import (
     calculate_enemy_win_chance,
     exp_to_next_level,
+    LEGEND_LEVEL,
     get_enemy,
     get_pet_max_needs,
     get_runaway_risk,
@@ -212,13 +213,17 @@ def _raccoon_profile_text(pet: dict) -> str:
     skills = pet.get("skills", {}) if isinstance(pet.get("skills"), dict) else {}
     level = pet.get("level", 1)
     safe_level = level if isinstance(level, int) and level > 0 else 1
+    is_legendary = safe_level >= LEGEND_LEVEL
     exp = pet.get("exp", 0)
     safe_exp = exp if isinstance(exp, int) and exp >= 0 else 0
+    next_exp = exp_to_next_level(safe_level)
+    exp_line = "✨ Опыт: максимум достигнут" if next_exp is None else f"✨ Опыт: {safe_exp} / {next_exp}"
+    level_line = f"📌 Уровень: {safe_level} 👑 Легенда" if is_legendary else f"📌 Уровень: {safe_level}"
     max_needs = get_pet_max_needs(pet)
     return (
         f"🦝 {pet.get('name', '-')}\n\n"
-        f"📌 Уровень: {safe_level}\n"
-        f"✨ Опыт: {safe_exp} / {exp_to_next_level(safe_level)}\n"
+        f"{level_line}\n"
+        f"{exp_line}\n"
         f"😊 Настроение: {mood}\n"
         f"📈 Максимум шкал: {max_needs['satiety']}\n\n"
         "💪 Навыки:\n"
@@ -232,14 +237,18 @@ def _group_raccoon_profile_text(pet: dict) -> str:
     mood = _localize_mood(update_pet_mood(pet))
     level = pet.get("level", 1)
     safe_level = level if isinstance(level, int) and level > 0 else 1
+    is_legendary = safe_level >= LEGEND_LEVEL
     exp = pet.get("exp", 0)
     safe_exp = exp if isinstance(exp, int) and exp >= 0 else 0
+    next_exp = exp_to_next_level(safe_level)
+    exp_line = "✨ Опыт: максимум достигнут" if next_exp is None else f"✨ Опыт: {safe_exp} / {next_exp}"
+    level_line = f"⭐ Уровень: {safe_level} 👑 Легенда" if is_legendary else f"⭐ Уровень: {safe_level}"
     max_needs = get_pet_max_needs(pet)
     name = str(pet.get("name", "Енот"))
     base = (
         f"🦝 {name}\n\n"
-        f"⭐ Уровень: {safe_level}\n"
-        f"✨ Опыт: {safe_exp} / {exp_to_next_level(safe_level)}\n\n"
+        f"{level_line}\n"
+        f"{exp_line}\n\n"
         f"🍖 Сытость: {pet.get('satiety', 0)}/{max_needs['satiety']}\n"
         f"🧼 Чистота: {pet.get('cleanliness', 0)}/{max_needs['cleanliness']}\n"
         f"❤️ Любовь: {pet.get('love', 0)}/{max_needs['love']}\n"

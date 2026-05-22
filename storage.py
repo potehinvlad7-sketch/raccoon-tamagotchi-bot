@@ -43,6 +43,9 @@ DEFAULT_TRAVEL = {
 DEFAULT_BATTLE = None
 NEEDS_TICK_MINUTES = 30
 
+MAX_LEVEL = 100
+LEGEND_LEVEL = 100
+
 TRAVEL_LOCATIONS = {
     "forest_clearing": {"button": "🌿 Лесная поляна", "name": "Лесная поляна", "min_level": 1, "costs": {"energy": 15, "satiety": 8, "cleanliness": 4}, "rewards": {"exp": 8, "currency": 4}},
     "quiet_thicket": {"button": "🌲 Тихая чаща", "name": "Тихая чаща", "min_level": 1, "costs": {"energy": 20, "satiety": 10, "cleanliness": 5}, "rewards": {"exp": 10, "currency": 5}},
@@ -205,7 +208,9 @@ def clamp_need(value: int) -> int:
 
 def get_max_need_value(level: int) -> int:
     safe_level = level if isinstance(level, int) and level > 0 else 1
-    return 100 + (safe_level - 1) * 17
+    safe_level = max(1, min(MAX_LEVEL, safe_level))
+    # Stage 13 foundation: higher levels require more attention and maintenance.
+    return 100 + (safe_level - 1) * 12 + max(0, safe_level - 30) * 8 + max(0, safe_level - 70) * 15
 
 
 def get_pet_max_needs(pet: dict[str, Any]) -> dict[str, int]:
@@ -233,11 +238,19 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
     if not isinstance(pet.get("level"), int) or int(pet.get("level", 0)) < 1:
         pet["level"] = 1
         changed = True
+    elif pet["level"] > MAX_LEVEL:
+        pet["level"] = MAX_LEVEL
+        changed = True
     if not isinstance(pet.get("exp"), int) or int(pet.get("exp", 0)) < 0:
         pet["exp"] = 0
         changed = True
     if not isinstance(pet.get("currency"), int) or int(pet.get("currency", 0)) < 0:
         pet["currency"] = 0
+        changed = True
+
+    is_legendary = int(pet.get("level", 1)) >= LEGEND_LEVEL
+    if pet.get("legendary") is not is_legendary:
+        pet["legendary"] = is_legendary
         changed = True
 
     inventory = pet.get("inventory")
@@ -586,9 +599,18 @@ def has_enough_energy(pet: dict[str, Any], amount: int) -> bool:
     return isinstance(energy, int) and energy >= amount
 
 
-def exp_to_next_level(level: int) -> int:
+def exp_to_next_level(level: int) -> int | None:
     safe_level = level if isinstance(level, int) and level > 0 else 1
-    return 50 + (safe_level - 1) * 25
+    safe_level = max(1, safe_level)
+    if safe_level >= MAX_LEVEL:
+        return None
+    if safe_level < 20:
+        return 50 + (safe_level - 1) * 35
+    if safe_level < 50:
+        return 900 + (safe_level - 20) * 120
+    if safe_level < 80:
+        return 4500 + (safe_level - 50) * 350
+    return 15000 + (safe_level - 80) * 1200
 
 
 def apply_level_ups(pet: dict[str, Any]) -> int:
@@ -597,17 +619,25 @@ def apply_level_ups(pet: dict[str, Any]) -> int:
     currency = pet.get("currency", 0)
 
     pet["level"] = level if isinstance(level, int) and level > 0 else 1
+    pet["level"] = min(MAX_LEVEL, pet["level"])
     pet["exp"] = exp if isinstance(exp, int) and exp >= 0 else 0
     pet["currency"] = currency if isinstance(currency, int) and currency >= 0 else 0
 
     levels_gained = 0
-    while pet["exp"] >= exp_to_next_level(pet["level"]):
+    while pet["level"] < MAX_LEVEL:
         required = exp_to_next_level(pet["level"])
+        if required is None or pet["exp"] < required:
+            break
         pet["exp"] -= required
         pet["level"] += 1
         pet["currency"] += 10
         levels_gained += 1
 
+    if pet["level"] >= MAX_LEVEL:
+        pet["level"] = MAX_LEVEL
+        pet["exp"] = 0
+
+    pet["legendary"] = pet["level"] >= LEGEND_LEVEL
     return levels_gained
 
 
@@ -1021,7 +1051,10 @@ def admin_update_pet_value(user_id: int, field: str, delta: int) -> tuple[bool, 
         after = int(pet.get("exp", 0)) if isinstance(pet.get("exp"), int) else 0
     elif field == "level":
         before = int(pet.get("level", 1)) if isinstance(pet.get("level"), int) else 1
-        pet["level"] = max(1, before + delta)
+        pet["level"] = max(1, min(MAX_LEVEL, before + delta))
+        if pet["level"] >= MAX_LEVEL:
+            pet["exp"] = 0
+        pet["legendary"] = pet["level"] >= LEGEND_LEVEL
         after = pet["level"]
     else:
         target[key] = before + delta
