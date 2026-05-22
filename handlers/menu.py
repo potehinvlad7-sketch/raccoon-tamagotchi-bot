@@ -236,7 +236,7 @@ def _travel_event_line(event: dict | None) -> str:
     if not isinstance(event, dict):
         return "🌿 Событие: спокойная прогулка."
     if event.get("id") == "retreat_high_route":
-        return "👑 Хранитель пути преградил дорогу.\nПока он не побеждён, новая локация не откроется."
+        return "Енотик услышал шорох впереди и с ужасом убежал обратно. Путь туда пока слишком опасен."
     if bool(event.get("is_boss")):
         return "👑 Хранитель пути преградил дорогу.\nПока он не побеждён, новая локация не откроется."
     if event.get("type") == "enemy":
@@ -359,13 +359,18 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
     event_line = "⚔️ Событие: встреча с противником."
     if battle.get("is_boss"):
         if battle.get("boss_failed") or battle.get("boss_blocked"):
-            event_line = "👑 Хранитель пути преградил дорогу.\nПока он не побеждён, новая локация не откроется."
-            boss_line = "\n\nПуть пока закрыт. Подкопите опыт, восстановите силы и попробуйте снова."
+            event_line = "👑 Хранитель пути оказался сильнее. Новая локация всё ещё закрыта."
         elif battle.get("boss_defeated"):
             if battle.get("level_gained"):
-                event_line = "👑 Хранитель пути повержен.\nНовая локация открыта. Енотик стал сильнее и сделал шаг дальше."
+                gained_exp = int(battle.get("boss_missing_exp_reward", battle.get("extra_exp", 0)))
+                event_line = (
+                    "👑 Хранитель пути повержен.\n"
+                    "Енотик набрался смелости и шагнул дальше.\n"
+                    f"✨ Получено опыта: +{gained_exp}\n"
+                    f"📌 Новый уровень: {battle.get('level_after', pet.get('level', 1))}"
+                )
             else:
-                event_line = "👑 Хранитель пути повержен.\nПуть открыт, но енотику ещё нужно накопить опыт для следующего уровня."
+                event_line = "👑 Хранитель пути повержен, но енотику ещё нужно немного опыта."
     item_lines = [
         f"• {ITEM_LABELS[item]} x{amount}"
         for item, amount in (battle.get("items_delta", {}) if isinstance(battle.get("items_delta"), dict) else {}).items()
