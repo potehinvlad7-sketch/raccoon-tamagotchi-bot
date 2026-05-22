@@ -160,6 +160,48 @@ def _resolve_travel_location_id(button_text: str | None) -> str | None:
     return None
 
 
+
+
+def _select_travel_window(level: int, max_items: int = 3) -> list[tuple[str, dict]]:
+    sorted_locations = sorted(get_travel_locations().items(), key=lambda item: item[1].get("min_level", 1))
+    if not sorted_locations:
+        return []
+
+    safe_level = level if isinstance(level, int) and level > 0 else 1
+    current_index = 0
+    for idx, (_, location) in enumerate(sorted_locations):
+        if safe_level >= int(location.get("min_level", 1)):
+            current_index = idx
+        else:
+            break
+
+    selected_indexes: list[int] = []
+    for candidate in (current_index - 1, current_index, current_index + 1):
+        if 0 <= candidate < len(sorted_locations) and candidate not in selected_indexes:
+            selected_indexes.append(candidate)
+
+    forward = current_index + 2
+    backward = current_index - 2
+    while len(selected_indexes) < max_items and (forward < len(sorted_locations) or backward >= 0):
+        if forward < len(sorted_locations) and forward not in selected_indexes:
+            selected_indexes.append(forward)
+            if len(selected_indexes) >= max_items:
+                break
+        if backward >= 0 and backward not in selected_indexes:
+            selected_indexes.insert(0, backward)
+        forward += 1
+        backward -= 1
+
+    selected_indexes = sorted(selected_indexes)[:max_items]
+    return [sorted_locations[i] for i in selected_indexes]
+
+
+def _travel_buttons_for_level(level: int) -> list[str]:
+    return [location.get("button", "🌲 Локация") for _, location in _select_travel_window(level)]
+
+
+def _travel_location_ids_for_level(level: int) -> set[str]:
+    return {location_id for location_id, _ in _select_travel_window(level)}
 def format_bar(value: int, maximum: int = 100, length: int = 10) -> str:
     safe_maximum = maximum if maximum > 0 else 100
     clamped = max(0, min(value if isinstance(value, int) else 0, safe_maximum))
@@ -513,23 +555,16 @@ async def travel_menu(message: Message) -> None:
     if not isinstance(pet, dict):
         await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-    travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
-    locations = get_travel_locations()
     level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
-    unlocked = [loc["button"] for loc in locations.values() if level >= loc.get("min_level", 1)]
-    locked_lines = [f"🔒 {loc['name']} — с уровня {loc['min_level']}" for loc in locations.values() if level < loc.get("min_level", 1)]
-    locked_text = "\n".join(locked_lines) if locked_lines else "—"
+    travel_buttons = _travel_buttons_for_level(level)
     await send_optional_screen(
         message,
         "travel",
-        "🌲 Путешествия\n\n"
-        f"• Всего прогулок: {travel.get('total_travels', 0)}\n"
-        f"• Последнее событие: {_localize_event(travel.get('last_event'))}\n\n"
-        "Доступные места:\n"
-        + ("\n".join(f"• {b}" for b in unlocked) if unlocked else "—")
-        + "\n\n"
-        + locked_text,
-        reply_markup=travel_menu_keyboard(unlocked),
+        "🗺️ Путешествие\n\n"
+        "Енотик принюхался к ветру и выбрал три тропы:\n"
+        "одна спокойнее, одна по силам, а одна явно пахнет приключениями.\n\n"
+        "Выберите маршрут:",
+        reply_markup=travel_menu_keyboard(travel_buttons),
     )
 
 
@@ -652,14 +687,24 @@ async def travel_to_location(message: Message) -> None:
     if not location_id:
         return
 
-    success, levels_gained, missing, user, location, event, result = perform_travel(message.from_user.id, location_id)
+    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
         await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
 
     level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
-    available = [loc["button"] for loc in get_travel_locations().values() if level >= loc.get("min_level", 1)]
+    available = _travel_buttons_for_level(level)
+    allowed_ids = _travel_location_ids_for_level(level)
+    if location_id not in allowed_ids:
+        await message.answer("Можно выбрать только один из трёх предложенных маршрутов.", reply_markup=travel_menu_keyboard(available))
+        return
+
+    success, levels_gained, missing, user, location, event, result = perform_travel(message.from_user.id, location_id, allow_above_level=True)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        return
 
     if not success:
         if "battle_pending" in missing:

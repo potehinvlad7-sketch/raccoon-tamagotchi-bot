@@ -978,7 +978,7 @@ def choose_travel_event(pet: dict[str, Any], location_id: str) -> dict[str, Any]
     return random.choice(pool)
 
 
-def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str], dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None, dict[str, int] | None]:
+def perform_travel(user_id: int, location_id: str, allow_above_level: bool = False) -> tuple[bool, int, list[str], dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None, dict[str, int] | None]:
     users = load_users()
     user = users.get(str(user_id))
     if not isinstance(user, dict):
@@ -996,7 +996,7 @@ def perform_travel(user_id: int, location_id: str) -> tuple[bool, int, list[str]
         return False, 0, ["unknown location"], user, None, None, None
 
     level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
-    if level < location.get("min_level", 1):
+    if not allow_above_level and level < location.get("min_level", 1):
         return False, 0, [f"level >= {location.get('min_level', 1)}"], user, location, None, None
 
     costs = location.get("costs", {})
