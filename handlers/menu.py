@@ -232,6 +232,16 @@ def _localize_event(event: str | None) -> str:
     return TRAVEL_EVENT_MAP.get(normalized, event)
 
 
+def _travel_event_line(event: dict | None) -> str:
+    if not isinstance(event, dict):
+        return "🌿 Событие: спокойная прогулка."
+    if bool(event.get("is_boss")):
+        return "👑 Событие: босс охраняет путь."
+    if event.get("type") == "enemy":
+        return "⚔️ Событие: встреча с противником."
+    return "🌿 Событие: спокойная прогулка."
+
+
 def _status_text(pet: dict) -> str:
     mood = _localize_mood(update_pet_mood(pet))
     risk = get_runaway_risk(pet)
@@ -349,7 +359,7 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
         boss_line = f"\n\n🏆 Босс побеждён!\nПуть к уровню {unlocked_level} открыт."
     elif battle.get("boss_failed"):
         boss_line = "\n\n🛡️ Босс удержал проход.\nПобедите его, чтобы открыть путь к следующему уровню."
-    regular_event = _localize_event(battle.get("event_id")) if battle.get("event_id") else "пока не было"
+    event_line = "👑 Событие: босс охраняет путь." if battle.get("is_boss") else "⚔️ Событие: встреча с противником."
     item_lines = [
         f"• {ITEM_LABELS[item]} x{amount}"
         for item, amount in (battle.get("items_delta", {}) if isinstance(battle.get("items_delta"), dict) else {}).items()
@@ -365,8 +375,7 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
         "Награда:\n"
         f"• ✨ Опыт: +{battle.get('base_exp', 0)}\n"
         f"• 🪙 Монеты: +{battle.get('base_currency', 0)}\n\n"
-        "Событие:\n"
-        f"{regular_event}\n\n"
+        f"{event_line}\n\n"
         f"{section_title}\n"
         + "\n".join(section_lines)
         + ("\n\nДополнительно из события:\n" + "\n".join(item_lines) if item_lines else "")
@@ -714,7 +723,7 @@ async def travel_to_location(message: Message) -> None:
     available = _travel_buttons_for_level(level)
     allowed_ids = _travel_location_ids_for_level(level)
     if location_id not in allowed_ids:
-        await message.answer("Можно выбрать только один из трёх предложенных маршрутов.", reply_markup=travel_menu_keyboard(available))
+        await message.answer("Этот маршрут уже недоступен. Откройте путешествия заново.", reply_markup=travel_menu_keyboard(available))
         return
 
     success, levels_gained, missing, user, location, event, result = perform_travel(message.from_user.id, location_id, allow_above_level=True)
@@ -758,8 +767,7 @@ async def travel_to_location(message: Message) -> None:
         "Награда:\n"
         f"• ✨ Опыт: +{spent.get('exp', 0)}\n"
         f"• 🪙 Монеты: +{spent.get('currency', 0)}\n\n"
-        "Событие:\n"
-        + _localize_event((event or {}).get("id") if isinstance(event, dict) else None)
+        + _travel_event_line(event if isinstance(event, dict) else None)
         + level_up_line
     )
     await message.answer(

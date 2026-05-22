@@ -900,7 +900,8 @@ def get_next_required_boss_level(pet: dict[str, Any]) -> int | None:
 
 def choose_travel_enemy(location_id: str, relation: str, pet_level: int) -> str:
     if relation == "higher":
-        return LOCATION_BOSS_BY_LEVEL.get(min(MAX_LEVEL, pet_level + 1), "legend_keeper")
+        location = TRAVEL_LOCATIONS.get(location_id, {})
+        return get_boss_for_location(location_id, location if isinstance(location, dict) else {})
     enemy_ids = LOCATION_ENEMIES.get(location_id, [])
     if not enemy_ids:
         return "field_mouse"
@@ -909,6 +910,19 @@ def choose_travel_enemy(location_id: str, relation: str, pet_level: int) -> str:
         if weaker:
             return random.choice(weaker)
     return random.choice(enemy_ids)
+
+
+def get_boss_for_location(location_id: str, location: dict[str, Any]) -> str:
+    location_level = int(location.get("min_level", 1))
+    mapped = LOCATION_BOSS_BY_LEVEL.get(location_level)
+    if isinstance(mapped, str) and mapped in ENEMY_CATALOG:
+        return mapped
+    enemy_ids = LOCATION_ENEMIES.get(location_id, [])
+    if enemy_ids:
+        first_enemy = enemy_ids[0]
+        if first_enemy in ENEMY_CATALOG:
+            return first_enemy
+    return "legend_keeper"
 
 
 def get_travel_reward_for_relation(pet: dict[str, Any], location: dict[str, Any], relation: str, enemy_result: str) -> dict[str, int]:
