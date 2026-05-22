@@ -48,6 +48,7 @@ from keyboards import (
     travel_menu_keyboard,
 )
 from config import ADMIN_IDS
+from handlers.images import send_optional_screen
 from storage import (
     calculate_enemy_win_chance,
     exp_to_next_level,
@@ -328,7 +329,7 @@ async def show_status(message: Message) -> None:
             reply_markup=battle_menu_keyboard(),
         )
         return
-    await message.answer(_status_text(pet), reply_markup=main_menu_keyboard())
+    await send_optional_screen(message, "pet", _status_text(pet), reply_markup=main_menu_keyboard())
 
 
 @router.message(F.text == BTN_MY_RACCOON)
@@ -341,7 +342,7 @@ async def show_raccoon(message: Message) -> None:
     if not isinstance(pet, dict):
         await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-    await message.answer(_raccoon_profile_text(pet), reply_markup=main_menu_keyboard())
+    await send_optional_screen(message, "pet", _raccoon_profile_text(pet), reply_markup=main_menu_keyboard())
 
 
 @router.message(Command("мой_енот"))
@@ -367,7 +368,7 @@ async def show_inventory(message: Message) -> None:
     if not isinstance(pet, dict):
         await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-    await message.answer(_inventory_text(pet), reply_markup=main_menu_keyboard())
+    await send_optional_screen(message, "inventory", _inventory_text(pet), reply_markup=main_menu_keyboard())
 
 
 @router.message(F.text == BTN_HELP)
@@ -387,10 +388,10 @@ async def show_help(message: Message) -> None:
 @router.message(F.text.in_({BTN_CONTACT_ADMIN, BTN_LETTER_TO_RACCOON}))
 async def contact_admin_entry(message: Message, state: FSMContext) -> None:
     await state.set_state(AdminMessageState.waiting_for_admin_message)
-    await message.answer(
-        "💌 Напишите свое анонимное желание, и ваш енотик передаст его ArtRaccoon)))\n\n"
-        "Для отмены нажмите:\n"
-        "❌ Отмена",
+    await send_optional_screen(
+        message,
+        "letter",
+        "💌 Напишите свое анонимное желание, и ваш енотик передаст его ArtRaccoon)))\n\nДля отмены нажмите:\n❌ Отмена",
         reply_markup=cancel_keyboard(),
     )
 
@@ -509,7 +510,9 @@ async def travel_menu(message: Message) -> None:
     unlocked = [loc["button"] for loc in locations.values() if level >= loc.get("min_level", 1)]
     locked_lines = [f"🔒 {loc['name']} — с уровня {loc['min_level']}" for loc in locations.values() if level < loc.get("min_level", 1)]
     locked_text = "\n".join(locked_lines) if locked_lines else "—"
-    await message.answer(
+    await send_optional_screen(
+        message,
+        "travel",
         "🌲 Путешествия\n\n"
         f"• Всего прогулок: {travel.get('total_travels', 0)}\n"
         f"• Последнее событие: {_localize_event(travel.get('last_event'))}\n\n"
@@ -525,21 +528,21 @@ async def travel_menu(message: Message) -> None:
 async def shop_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("🛒 Магазин", reply_markup=build_shop_keyboard())
+    await send_optional_screen(message, "shop", "🛒 Магазин", reply_markup=build_shop_keyboard())
 
 
 @router.message(F.text == BTN_BACK)
 async def back_to_main(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("Главное меню:", reply_markup=main_menu_keyboard())
+    await send_optional_screen(message, "main_menu", "Главное меню:", reply_markup=main_menu_keyboard())
 
 
 @router.message(F.text == BTN_SHOP_BACK)
 async def back_from_shop(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("Главное меню:", reply_markup=main_menu_keyboard())
+    await send_optional_screen(message, "main_menu", "Главное меню:", reply_markup=main_menu_keyboard())
 
 
 async def _perform_care_action(message: Message, item_key: str) -> None:
@@ -797,11 +800,14 @@ async def shop_open_category(message: Message) -> None:
         return
     category = get_shop_categories().get(category_id)
     if not isinstance(category, dict):
-        await message.answer("Категория недоступна.", reply_markup=build_shop_keyboard())
+        await send_optional_screen(message, "shop", "Категория недоступна.", reply_markup=build_shop_keyboard())
         return
     items = get_shop_items_by_category(category_id)
     prepared_items = [{**item, "emoji": _resolve_shop_emoji(str(item.get("id", "")), str(item.get("name", "")))} for item in items]
-    await message.answer(
+    screen_key = f"shop_{category_id}"
+    await send_optional_screen(
+        message,
+        screen_key,
         _shop_category_text(category, prepared_items),
         reply_markup=build_shop_item_keyboard(category_id, prepared_items),
     )
@@ -811,7 +817,7 @@ async def shop_open_category(message: Message) -> None:
 async def shop_back_to_categories(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
-    await callback.message.answer("🛒 Магазин", reply_markup=build_shop_keyboard())
+    await send_optional_screen(callback.message, "shop", "🛒 Магазин", reply_markup=build_shop_keyboard())
     await callback.answer()
 
 
