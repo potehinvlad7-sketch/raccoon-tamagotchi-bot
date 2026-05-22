@@ -1294,9 +1294,17 @@ def resolve_battle_attack(user_id: int) -> tuple[bool, dict[str, Any] | None]:
         if is_boss:
             boss_level = int(travel_context.get("boss_level", 0))
             if boss_level > 1:
+                level_before = int(pet.get("level", 1)) if isinstance(pet.get("level"), int) else 1
                 mark_boss_defeated(pet, boss_level)
-                result["boss_unlocked_level"] = boss_level
+                result["travel_context"]["boss_unlocked_level"] = boss_level
+                result["travel_context"]["boss_defeated"] = True
                 result["levels_gained"] += apply_level_ups(pet)
+                level_after = int(pet.get("level", level_before)) if isinstance(pet.get("level"), int) else level_before
+                result["travel_context"]["level_before"] = level_before
+                result["travel_context"]["level_after"] = level_after
+                result["travel_context"]["level_gained"] = level_after > level_before
+            else:
+                result["travel_context"]["boss_defeated"] = False
     else:
         extra = difficulty // 3
         penalties = {"energy": -(10 + extra), "cleanliness": -(8 + extra), "love": -(6 + extra), "satiety": -(4 + extra)}
@@ -1304,7 +1312,8 @@ def resolve_battle_attack(user_id: int) -> tuple[bool, dict[str, Any] | None]:
             pet[need] = clamp_need_by_level(pet, need, int(pet.get(need, 0)) + delta)
         result["penalties"] = penalties
         if is_boss:
-            result["boss_failed"] = True
+            result["travel_context"]["boss_failed"] = True
+            result["travel_context"]["boss_blocked"] = True
     pet["battle"] = None
     update_pet_mood(pet)
     pet["updated_at"] = utc_now().isoformat()
