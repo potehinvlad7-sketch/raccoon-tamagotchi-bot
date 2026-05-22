@@ -18,6 +18,8 @@ from storage import (
     admin_update_pet_value,
     create_users_backup,
     ensure_pet_defaults,
+    exp_to_next_level,
+    LEGEND_LEVEL,
     get_all_users,
     get_pet_max_needs,
     get_storage_stats,
@@ -175,6 +177,12 @@ def _currency_keyboard(user_id: int) -> InlineKeyboardMarkup:
 def _format_stats() -> str:
     stats = get_storage_stats()
     backup_dir = "data/backups"
+    level = int(pet.get("level", 1)) if isinstance(pet.get("level"), int) else 1
+    is_legendary = level >= LEGEND_LEVEL
+    exp = int(pet.get("exp", 0)) if isinstance(pet.get("exp"), int) else 0
+    next_exp = exp_to_next_level(level)
+    level_line = f"• Уровень: {level} 👑 Легенда" if is_legendary else f"• Уровень: {level}"
+    exp_line = "• Опыт: максимум достигнут" if next_exp is None else f"• Опыт: {exp}/{next_exp}"
     return (
         "📊 <b>Статистика хранилища</b>\n\n"
         f"👥 Всего пользователей: <b>{stats['total_users']}</b>\n"
@@ -193,8 +201,10 @@ def _format_user_line(user_id: int, user: dict) -> str:
     if not isinstance(pet, dict):
         return f"• {user_id} | {username} | без питомца"
     level = pet.get("level", 1)
+    safe_level = level if isinstance(level, int) and level > 0 else 1
     pet_name = pet.get("name", "без имени")
-    return f"• {user_id} | {username} | {pet_name} (ур. {level})"
+    legend = " 👑" if safe_level >= LEGEND_LEVEL else ""
+    return f"• {user_id} | {username} | {pet_name} (ур. {safe_level}{legend})"
 
 
 def _format_user_detail(user_id: int, user: dict) -> str:
@@ -241,8 +251,8 @@ def _format_user_detail(user_id: int, user: dict) -> str:
         "🦝 <b>Питомец:</b>\n"
         f"• Имя: {pet.get('name', 'неизвестно')}\n"
         f"• Пол: {pet.get('gender', 'неизвестно')}\n"
-        f"• Уровень: {pet.get('level', 1)}\n"
-        f"• Опыт: {pet.get('exp', 0)}\n"
+        f"{level_line}\n"
+        f"{exp_line}\n"
         "• Навыки:\n"
         f"  - сила: {skills.get('strength', 0)}\n"
         f"  - ловкость: {skills.get('agility', 0)}\n"
