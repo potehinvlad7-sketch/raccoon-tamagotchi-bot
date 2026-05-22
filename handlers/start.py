@@ -5,6 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from keyboards import BTN_GENDER_FEMALE, BTN_GENDER_MALE, gender_keyboard, main_menu_keyboard
+from handlers.images import send_optional_screen
 from storage import create_pet, has_pet, refresh_user_metadata, touch_user_needs
 
 
@@ -32,11 +33,11 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     if has_pet(message.from_user.id):
         touch_user_needs(message.from_user.id)
         await state.clear()
-        await message.answer("С возвращением! Главное меню:", reply_markup=main_menu_keyboard())
+        await send_optional_screen(message, "main_menu", "С возвращением! Главное меню:", reply_markup=main_menu_keyboard())
         return
 
     await state.set_state(PetCreation.choosing_gender)
-    await message.answer("Привет! Давай создадим твоего енота 🦝\n\nВыбери пол питомца:", reply_markup=gender_keyboard())
+    await send_optional_screen(message, "start", "Привет! Давай создадим твоего енота 🦝\n\nВыбери пол питомца:", reply_markup=gender_keyboard())
 
 
 @router.message(PetCreation.choosing_gender, F.text.in_(set(GENDER_TEXT_TO_INTERNAL.keys())))

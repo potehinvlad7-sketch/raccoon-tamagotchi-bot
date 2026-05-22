@@ -5,6 +5,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import is_admin
+from handlers.images import send_optional_screen
 from keyboards import main_menu_keyboard
 from storage import (
     ITEM_CATALOG,
@@ -296,7 +297,7 @@ async def cmd_admin(message: Message) -> None:
         await message.answer(ADMIN_ONLY_TEXT)
         return
     refresh_user_metadata(message.from_user.id, message.from_user)
-    await message.answer("🛠 <b>Админ-панель</b>\nВыберите действие:", reply_markup=_admin_panel_keyboard())
+    await send_optional_screen(message, "admin", "🛠 <b>Админ-панель</b>\nВыберите действие:", reply_markup=_admin_panel_keyboard())
 
 
 @router.message(Command("admin_stats"))
