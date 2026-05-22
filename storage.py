@@ -1165,6 +1165,10 @@ def perform_travel(user_id: int, location_id: str, allow_above_level: bool = Fal
     elif relation == "lower" and random.random() < LOWER_ROUTE_ENEMY_CHANCE:
         enemy_id = choose_travel_enemy(location_id, relation, level)
         event = {"id": f"enemy_{enemy_id}", "type": "enemy", "enemy_id": enemy_id, "enemy": get_enemy(enemy_id)}
+
+    pet["currency"] = int(pet.get("currency", 0)) + base_currency if isinstance(pet.get("currency"), int) else base_currency
+    levels_gained += add_exp(pet, base_exp)
+
     effects = event.get("effects", {}) if isinstance(event.get("effects"), dict) else {}
     event_exp = int(effects.get("exp", 0)) if isinstance(effects.get("exp", 0), int) else 0
     event_currency = int(effects.get("currency", 0)) if isinstance(effects.get("currency", 0), int) else 0
