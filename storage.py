@@ -890,6 +890,10 @@ def mark_boss_defeated(pet: dict[str, Any], level: int) -> None:
     if level not in defeated:
         defeated.append(level)
         defeated.sort()
+    blocked_level = pet.get("blocked_boss_level")
+    if isinstance(blocked_level, int) and blocked_level == level:
+        pet["level_up_blocked"] = False
+        pet["blocked_boss_level"] = None
 
 
 def get_next_required_boss_level(pet: dict[str, Any]) -> int | None:
@@ -963,6 +967,8 @@ def apply_level_ups(pet: dict[str, Any]) -> int:
     pet["exp"] = exp if isinstance(exp, int) and exp >= 0 else 0
     pet["currency"] = currency if isinstance(currency, int) and currency >= 0 else 0
 
+    pet["level_up_blocked"] = False
+    pet["blocked_boss_level"] = None
     levels_gained = 0
     while pet["level"] < MAX_LEVEL:
         required = exp_to_next_level(pet["level"])
@@ -1152,7 +1158,13 @@ def perform_travel(user_id: int, location_id: str, allow_above_level: bool = Fal
 
     event = {"id": "peaceful", "type": "neutral", "effects": {}}
     if relation == "higher":
-        if can_challenge_next_boss(pet):
+        next_boss_level = get_next_required_boss_level(pet)
+        location_level = int(location.get("min_level", level))
+        if location_level != next_boss_level:
+            base_exp = 0
+            base_currency = 0
+            event = {"id": "retreat_high_route", "type": "neutral", "effects": {}}
+        elif can_challenge_next_boss(pet):
             enemy_id = choose_travel_enemy(location_id, relation, level)
             event = {"id": f"boss_{enemy_id}", "type": "enemy", "enemy_id": enemy_id, "enemy": get_enemy(enemy_id), "is_boss": True}
         else:
