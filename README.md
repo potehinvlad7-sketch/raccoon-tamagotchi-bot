@@ -68,3 +68,10 @@ Telegram RPG tamagotchi bot where users create a raccoon pet, care for it, train
 - Добавлены более сильные противники и распределение врагов по новым локациям.
 - Путь к уровню 100 теперь имеет позднеигровой travel-контент.
 - Механики экипировки и пошагового боя в этой стадии не добавлялись.
+
+## Travel map update
+
+- Added **100 unique travel locations** for progression content.
+- Each location now maps to **exactly one level (1-100)** via `min_level`.
+- This structure supports a **level-window travel selection** (showing only relevant nearby locations).
+- This PR does **not** add equipment systems or step-by-step combat flow changes.
