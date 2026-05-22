@@ -237,6 +237,14 @@ def _format_user_detail(user_id: int, user: dict) -> str:
     inv = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
     travel = pet.get("travel", {}) if isinstance(pet.get("travel"), dict) else {}
     battle = pet.get("battle")
+    level = int(pet.get("level", 1)) if isinstance(pet.get("level"), int) else 1
+    level = max(1, level)
+    is_legendary = bool(pet.get("legendary")) or level >= LEGEND_LEVEL
+    exp = int(pet.get("exp", 0)) if isinstance(pet.get("exp"), int) else 0
+    exp = max(0, exp)
+    next_exp = exp_to_next_level(level)
+    level_line = f"• Уровень: 100 👑 Легенда" if is_legendary else f"• Уровень: {level}"
+    exp_line = "• Опыт: максимум достигнут" if next_exp is None else f"• Опыт: {exp}/{next_exp}"
     total_earned = pet.get("total_earned") if isinstance(pet.get("total_earned"), int) else "неизвестно"
     total_spent = pet.get("total_spent") if isinstance(pet.get("total_spent"), int) else "неизвестно"
     return (
