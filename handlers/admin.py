@@ -1,11 +1,12 @@
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from config import is_admin
-from handlers.images import edit_or_send_screen, send_optional_screen
+from handlers.images import send_optional_screen
 from keyboards import main_menu_keyboard
 from storage import (
     ITEM_CATALOG,
@@ -45,6 +46,28 @@ def _is_admin_message(message: Message) -> bool:
 
 def _is_admin_callback(callback: CallbackQuery) -> bool:
     return bool(callback.from_user and is_admin(callback.from_user.id))
+
+
+async def safe_admin_edit_or_answer(
+    callback: CallbackQuery,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+    parse_mode: str | None = None,
+) -> None:
+    message = callback.message
+    if message is None:
+        await callback.answer()
+        return
+    try:
+        if message.text:
+            await message.edit_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except TelegramBadRequest as exc:
+        if "there is no text in the message to edit" in str(exc).lower():
+            await message.answer(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            raise
 
 
 def _admin_panel_keyboard() -> InlineKeyboardMarkup:
@@ -352,11 +375,11 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
         if data == "admin:panel":
             BROADCAST_DRAFTS.pop(callback.from_user.id, None)
             await state.clear()
-            await edit_or_send_screen(callback, "🛠 <b>Админ-панель</b>\nВыберите действие:", reply_markup=_admin_panel_keyboard())
+            await safe_admin_edit_or_answer(callback, "🛠 <b>Админ-панель</b>\nВыберите действие:", reply_markup=_admin_panel_keyboard())
         elif data == "admin:bcast:menu":
             BROADCAST_DRAFTS.pop(callback.from_user.id, None)
             await state.clear()
-            await edit_or_send_screen(callback, "admin", "📣 Выберите получателей рассылки:", reply_markup=_broadcast_audience_keyboard())
+            await safe_admin_edit_or_answer(callback, "📣 Выберите получателей рассылки:", reply_markup=_broadcast_audience_keyboard())
         elif data == "admin:bcast:all":
             BROADCAST_DRAFTS[callback.from_user.id] = {"mode": "all"}
             await state.set_state(AdminBroadcastState.waiting_for_content)
@@ -365,7 +388,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
             page = max(0, int(parts[3]))
             users = get_all_users()
             if not users:
-                await edit_or_send_screen(callback, "admin", "Пользователи не найдены.", reply_markup=_broadcast_audience_keyboard())
+                await safe_admin_edit_or_answer(callback, "Пользователи не найдены.", reply_markup=_broadcast_audience_keyboard())
             else:
                 total_pages = (len(users) + USERS_PER_PAGE - 1) // USERS_PER_PAGE
                 if page >= total_pages:
@@ -373,7 +396,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
                 start = page * USERS_PER_PAGE
                 users_slice = users[start:start + USERS_PER_PAGE]
                 text = "👤 Выберите пользователя для рассылки:\n\n" + "\n".join(_format_user_line(uid, user) for uid, user in users_slice)
-                await edit_or_send_screen(callback, "admin", text, reply_markup=_broadcast_users_keyboard(page, total_pages, users_slice))
+                await safe_admin_edit_or_answer(callback, text, reply_markup=_broadcast_users_keyboard(page, total_pages, users_slice))
         elif len(parts) == 4 and parts[1] == "bcast" and parts[2] == "target":
             user_id = int(parts[3])
             if get_user_by_id(user_id) is None:
@@ -413,7 +436,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
                 BROADCAST_DRAFTS.pop(callback.from_user.id, None)
                 await state.clear()
         elif data == "admin:stats":
-            await edit_or_send_screen(callback, "admin", _format_stats(), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")]]))
+            await safe_admin_edit_or_answer(callback, _format_stats(), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")]]))
         elif data == "admin:backup":
             success, backup_path = create_users_backup()
             if success:
@@ -422,7 +445,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
             else:
                 await callback.message.answer(f"❌ {backup_path}")
         elif data == "admin:refresh_users":
-            await edit_or_send_screen(
+            await safe_admin_edit_or_answer(
                 callback,
                 "🔄 Обновляю данные пользователей...\nЭто может занять несколько секунд.",
                 reply_markup=_admin_panel_keyboard(),
@@ -450,7 +473,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
             if failed > 0:
                 result_text += "\n\nНекоторые пользователи могли заблокировать бота или быть недоступны."
 
-            await edit_or_send_screen(callback, "admin", result_text, reply_markup=_admin_panel_keyboard())
+            await safe_admin_edit_or_answer(callback, result_text, reply_markup=_admin_panel_keyboard())
 
         elif data == "admin:main":
             await callback.message.answer("Возврат в главное меню.", reply_markup=main_menu_keyboard())
@@ -458,7 +481,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
             page = max(0, int(parts[2]))
             users = get_all_users()
             if not users:
-                await edit_or_send_screen(callback, "admin", "Пользователи не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")]]))
+                await safe_admin_edit_or_answer(callback, "Пользователи не найдены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")]]))
             else:
                 start = page * USERS_PER_PAGE
                 total_pages = (len(users) + USERS_PER_PAGE - 1) // USERS_PER_PAGE
@@ -467,7 +490,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
                     start = page * USERS_PER_PAGE
                 users_slice = users[start:start + USERS_PER_PAGE]
                 text = "👥 Пользователи\n\n" + "\n".join(_format_user_line(uid, user) for uid, user in users_slice)
-                await edit_or_send_screen(callback, "admin", text, reply_markup=_users_keyboard(page, total_pages, users_slice))
+                await safe_admin_edit_or_answer(callback, text, reply_markup=_users_keyboard(page, total_pages, users_slice))
         elif len(parts) == 3 and parts[1] == "user":
             user_id = int(parts[2])
             user = get_user_by_id(user_id)
@@ -477,20 +500,20 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
                 profile_text = _format_user_detail(user_id, user)
                 extra_text = _format_inventory_summary(user) + "\n\n" + _format_active_states(user)
                 if len(profile_text) + len(extra_text) > 3600:
-                    await edit_or_send_screen(callback, "admin", profile_text, parse_mode="HTML", reply_markup=_user_actions_keyboard(user_id))
+                    await safe_admin_edit_or_answer(callback, profile_text, parse_mode="HTML", reply_markup=_user_actions_keyboard(user_id))
                     await callback.message.answer(extra_text)
                 else:
-                    await edit_or_send_screen(callback, profile_text + "\n\n" + extra_text, parse_mode="HTML", reply_markup=_user_actions_keyboard(user_id))
+                    await safe_admin_edit_or_answer(callback, profile_text + "\n\n" + extra_text, parse_mode="HTML", reply_markup=_user_actions_keyboard(user_id))
         elif len(parts) == 3 and parts[1] == "pet":
             user_id = int(parts[2])
             user = get_user_by_id(user_id)
             if user is None:
                 await callback.message.answer("Пользователь не найден.")
             else:
-                await edit_or_send_screen(callback, "admin", _format_user_detail(user_id, user), parse_mode="HTML", reply_markup=_user_actions_keyboard(user_id))
+                await safe_admin_edit_or_answer(callback, _format_user_detail(user_id, user), parse_mode="HTML", reply_markup=_user_actions_keyboard(user_id))
         elif len(parts) == 3 and parts[1] == "edit":
             user_id = int(parts[2])
-            await edit_or_send_screen(callback, "admin", "✏️ Выберите действие для редактирования питомца:", reply_markup=_pet_edit_keyboard(user_id))
+            await safe_admin_edit_or_answer(callback, "✏️ Выберите действие для редактирования питомца:", reply_markup=_pet_edit_keyboard(user_id))
         elif len(parts) == 4 and parts[1] == "edit":
             user_id = int(parts[2])
             action = parts[3]
@@ -533,7 +556,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
                 for title, bucket in (("Еда", "food"), ("Гигиена", "cleanliness"), ("Игра", "love"), ("Энергия", "energy"), ("Прочее", "other")):
                     if categories[bucket]:
                         lines.append(f"\n<b>{title}</b>\n" + "\n".join(categories[bucket]))
-                await edit_or_send_screen(callback, "admin", "\n".join(lines), reply_markup=_inv_keyboard(user_id))
+                await safe_admin_edit_or_answer(callback, "\n".join(lines), reply_markup=_inv_keyboard(user_id))
         elif len(parts) == 4 and parts[1] == "inv_add":
             user_id = int(parts[2])
             key = parts[3]
@@ -544,7 +567,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
                 await callback.message.answer("❌ Не удалось обновить инвентарь.")
         elif len(parts) == 3 and parts[1] == "currency_menu":
             user_id = int(parts[2])
-            await edit_or_send_screen(callback, "admin", "💰 Управление монетами:", reply_markup=_currency_keyboard(user_id))
+            await safe_admin_edit_or_answer(callback, "💰 Управление монетами:", reply_markup=_currency_keyboard(user_id))
         elif len(parts) == 4 and parts[1] == "currency":
             user_id = int(parts[2])
             amount = int(parts[3])
