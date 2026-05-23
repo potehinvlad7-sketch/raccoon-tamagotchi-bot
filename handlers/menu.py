@@ -48,7 +48,7 @@ from keyboards import (
     travel_menu_keyboard,
 )
 from config import ADMIN_IDS
-from handlers.images import edit_or_send_screen, send_optional_screen
+from handlers.images import send_optional_screen
 from storage import (
     calculate_enemy_win_chance,
     exp_to_next_level,
@@ -907,7 +907,7 @@ async def shop_open_category(message: Message) -> None:
 async def shop_back_to_categories(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
-    await edit_or_send_screen(callback, "shop", "🛒 Магазин", reply_markup=build_shop_keyboard())
+    await send_optional_screen(callback.message, "shop", "🛒 Магазин", reply_markup=build_shop_keyboard())
     await callback.answer()
 
 
@@ -925,14 +925,11 @@ async def shop_buy_item(callback: CallbackQuery) -> None:
         await callback.answer("Недостаточно монет.", show_alert=True)
         return
     emoji = _resolve_shop_emoji(item_id, str(item.get("name", "")))
-    await edit_or_send_screen(
-        callback,
-        "shop",
+    await callback.message.answer(
         "🛒 Покупка\n\n"
         "Вы купили:\n"
         f"{emoji} {item.get('name', 'Предмет')} x1\n\n"
         "Потрачено:\n"
-        f"💰 {price} монет",
-        reply_markup=build_shop_keyboard(),
+        f"💰 {price} монет"
     )
     await callback.answer(f"В инвентаре: {count}")
