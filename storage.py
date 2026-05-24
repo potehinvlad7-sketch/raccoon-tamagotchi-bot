@@ -459,6 +459,40 @@ def clamp_need_by_level(pet: dict[str, Any], need: str, value: int) -> int:
     return max(0, min(need_max, value))
 
 
+def normalize_defeated_boss_levels(
+    defeated_levels: Any,
+    *,
+    current_level: int,
+    allow_legacy_backfill: bool,
+) -> tuple[list[int], bool]:
+    safe_current_level = current_level if isinstance(current_level, int) else 1
+    safe_current_level = max(1, min(MAX_LEVEL, safe_current_level))
+    max_allowed_level = MAX_LEVEL
+    if allow_legacy_backfill:
+        max_allowed_level = safe_current_level
+
+    if isinstance(defeated_levels, list):
+        normalized = sorted(
+            {
+                level
+                for level in defeated_levels
+                if isinstance(level, int) and 1 < level <= max_allowed_level
+            }
+        )
+        if allow_legacy_backfill:
+            for level in range(2, safe_current_level + 1):
+                if level not in normalized:
+                    normalized.append(level)
+            normalized.sort()
+        changed = normalized != defeated_levels
+        return normalized, changed
+
+    if not allow_legacy_backfill:
+        return [], True
+
+    return list(range(2, safe_current_level + 1)), True
+
+
 def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     changed = False
     pet = user_data.get("pet")
@@ -522,21 +556,21 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
     if "battle" not in pet:
         pet["battle"] = DEFAULT_BATTLE
         changed = True
-    defeated = pet.get("defeated_boss_levels")
     current_level = pet.get("level", 1) if isinstance(pet.get("level"), int) else 1
-    if not isinstance(defeated, list):
-        pet["defeated_boss_levels"] = list(range(2, current_level + 1))
+    defeated = pet.get("defeated_boss_levels")
+    has_migration_marker = bool(pet.get("boss_progress_migrated"))
+    allow_legacy_backfill = not isinstance(defeated, list) and current_level > 1 and not has_migration_marker
+    normalized_boss_levels, boss_levels_changed = normalize_defeated_boss_levels(
+        defeated,
+        current_level=current_level,
+        allow_legacy_backfill=allow_legacy_backfill,
+    )
+    if boss_levels_changed:
+        pet["defeated_boss_levels"] = normalized_boss_levels
         changed = True
-    else:
-        cleaned = sorted({lvl for lvl in defeated if isinstance(lvl, int) and 1 < lvl <= MAX_LEVEL})
-        for lvl in range(2, current_level + 1):
-            if lvl not in cleaned:
-                cleaned.append(lvl)
-                changed = True
-        cleaned.sort()
-        if cleaned != defeated:
-            pet["defeated_boss_levels"] = cleaned
-            changed = True
+    if allow_legacy_backfill:
+        pet["boss_progress_migrated"] = True
+        changed = True
 
     updated_at = parse_datetime(pet.get("updated_at"))
     if updated_at is None:
