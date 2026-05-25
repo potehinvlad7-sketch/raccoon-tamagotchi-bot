@@ -42,6 +42,7 @@ DEFAULT_TRAVEL = {
 }
 DEFAULT_BATTLE = None
 NEEDS_TICK_MINUTES = 30
+SLEEP_COOLDOWN = timedelta(hours=24)
 
 MAX_LEVEL = 100
 LEGEND_LEVEL = 100
@@ -581,6 +582,12 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
     if parse_datetime(pet.get("last_needs_update_at")) is None:
         pet["last_needs_update_at"] = updated_at.isoformat()
         changed = True
+    if "last_sleep_at" not in pet:
+        pet["last_sleep_at"] = None
+        changed = True
+    elif pet.get("last_sleep_at") is not None and parse_datetime(pet.get("last_sleep_at")) is None:
+        pet["last_sleep_at"] = None
+        changed = True
     if not isinstance(pet.get("mood"), str):
         pet["mood"] = "normal"
         changed = True
@@ -877,6 +884,44 @@ def update_pet_need(user_id: int, need: str | None = None, amount: int | None = 
     users[str(user_id)] = user
     save_users(users)
     return True, user
+
+
+def sleep_pet(user_id: int, now: datetime | None = None) -> dict[str, Any]:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return {"available": False, "restored": False, "time_left": None, "user": None}
+
+    changed = recalculate_needs(user)
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        if changed:
+            users[str(user_id)] = user
+            save_users(users)
+        return {"available": False, "restored": False, "time_left": None, "user": user}
+
+    current_time = now.astimezone(UTC) if isinstance(now, datetime) else utc_now()
+    last_sleep_at = parse_datetime(pet.get("last_sleep_at"))
+    if last_sleep_at is not None:
+        next_sleep_at = last_sleep_at + SLEEP_COOLDOWN
+        if current_time < next_sleep_at:
+            if changed:
+                users[str(user_id)] = user
+                save_users(users)
+            return {
+                "available": False,
+                "restored": False,
+                "time_left": next_sleep_at - current_time,
+                "user": user,
+            }
+
+    pet["energy"] = clamp_need_by_level(pet, "energy", get_max_need_value(int(pet.get("level", 1))))
+    pet["last_sleep_at"] = current_time.isoformat()
+    pet["updated_at"] = current_time.isoformat()
+    update_pet_mood(pet)
+    users[str(user_id)] = user
+    save_users(users)
+    return {"available": True, "restored": True, "time_left": timedelta(0), "user": user}
 
 
 def has_enough_energy(pet: dict[str, Any], amount: int) -> bool:
