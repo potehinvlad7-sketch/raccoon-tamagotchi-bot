@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 
 from keyboards import (
     BTN_BACK,
@@ -680,6 +680,8 @@ async def _perform_care_action_for_user(user_id: int, item_key: str) -> tuple[bo
     success, _ = update_pet_need(user_id, inventory_item=item_key)
     if not success:
         return False, "Такого предмета нет в инвентаре. Загляни в магазин 🛒"
+    if item_key == "toy":
+        return True, f"Енот немного поиграл. Любовь +{item.get('restore', 0)}."
     return (
         True,
         f"Енот использовал {item.get('name', 'предмет').lower()} {item.get('emoji', '')}\n"
@@ -710,6 +712,9 @@ async def _refresh_pet_care_card(callback: CallbackQuery, pet: dict, result_text
             return
         await message.edit_text(updated_text, reply_markup=pet_care_inline_keyboard())
         return
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return
     except TelegramAPIError:
         pass
 
