@@ -45,6 +45,7 @@ from keyboards import (
     build_shop_keyboard,
     build_shop_item_keyboard,
     cancel_keyboard,
+    pet_care_inline_keyboard,
     training_menu_keyboard,
     TRAVEL_LOCATIONS,
     travel_menu_keyboard,
@@ -448,7 +449,7 @@ async def show_status(message: Message) -> None:
             reply_markup=battle_menu_keyboard(),
         )
         return
-    await send_optional_screen(message, "pet", _status_text(pet), reply_markup=main_menu_keyboard())
+    await send_optional_screen(message, "pet", _status_text(pet), reply_markup=pet_care_inline_keyboard())
 
 
 @router.message(F.text == BTN_MY_RACCOON)
@@ -461,7 +462,7 @@ async def show_raccoon(message: Message) -> None:
     if not isinstance(pet, dict):
         await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-    await send_optional_screen(message, "pet", _raccoon_profile_text(pet), reply_markup=main_menu_keyboard())
+    await send_optional_screen(message, "pet", _raccoon_profile_text(pet), reply_markup=pet_care_inline_keyboard())
 
 
 @router.message(Command("мой_енот"))
@@ -673,6 +674,19 @@ async def _perform_care_action(message: Message, item_key: str) -> None:
     )
 
 
+async def _perform_care_action_for_user(user_id: int, item_key: str) -> tuple[bool, str]:
+    catalog = get_item_catalog()
+    item = catalog.get(item_key, {})
+    success, _ = update_pet_need(user_id, inventory_item=item_key)
+    if not success:
+        return False, "Такого предмета нет в инвентаре. Загляни в магазин 🛒"
+    return (
+        True,
+        f"Енот использовал {item.get('name', 'предмет').lower()} {item.get('emoji', '')}\n"
+        f"{_need_label(item.get('need', ''))} +{item.get('restore', 0)}.",
+    )
+
+
 def _need_label(need: str) -> str:
     return {"satiety": "Сытость", "cleanliness": "Чистота", "love": "Любовь", "energy": "Энергия"}.get(need, "Параметр")
 
@@ -760,6 +774,54 @@ async def care_sleep(message: Message) -> None:
         "Также можно использовать зелья энергии.",
         reply_markup=care_menu_keyboard(),
     )
+
+
+async def _handle_pet_care_callback_action(callback: CallbackQuery, action: str) -> None:
+    if callback.from_user is None:
+        await callback.answer()
+        return
+    user = touch_user_needs(callback.from_user.id) or get_user(callback.from_user.id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await callback.message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        await callback.answer()
+        return
+
+    action_to_item = {"feed": "food", "clean": "soap", "play": "toy"}
+    if action in action_to_item:
+        ok, text = await _perform_care_action_for_user(callback.from_user.id, action_to_item[action])
+        await callback.message.answer(text, reply_markup=pet_care_inline_keyboard())
+        await callback.answer()
+        return
+    if action == "sleep":
+        result = sleep_pet(callback.from_user.id)
+        if result.get("available"):
+            await callback.message.answer(
+                "🌙 Енотик сладко поспал и восстановил силы.\n⚡ Энергия полностью восстановлена.",
+                reply_markup=pet_care_inline_keyboard(),
+            )
+            await callback.answer()
+            return
+        time_left = result.get("time_left")
+        formatted = _format_time_left(time_left) if isinstance(time_left, timedelta) else "неизвестно"
+        await callback.message.answer(
+            "🌙 Енотик уже отдыхал сегодня.\n\n"
+            f"Бесплатный сон будет доступен через: {formatted}.\n"
+            "⚡ Энергия постепенно восстановится в течение дня.\n"
+            "Также можно использовать зелья энергии.",
+            reply_markup=pet_care_inline_keyboard(),
+        )
+        await callback.answer()
+        return
+    if action == "menu":
+        await send_optional_screen(callback.message, "main_menu", "Главное меню:", reply_markup=main_menu_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("pet_care:"))
+async def pet_care_inline_action(callback: CallbackQuery) -> None:
+    action = callback.data.split(":", 1)[1] if callback.data else ""
+    await _handle_pet_care_callback_action(callback, action)
 
 
 @router.message(F.text == BTN_TRAIN_STRENGTH)

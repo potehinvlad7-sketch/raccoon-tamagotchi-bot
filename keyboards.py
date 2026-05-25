@@ -237,6 +237,22 @@ def build_shop_item_keyboard(category_id: str, items: list[dict]) -> InlineKeybo
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def pet_care_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🍗 Покормить", callback_data="pet_care:feed"),
+                InlineKeyboardButton(text="🧼 Помыть", callback_data="pet_care:clean"),
+            ],
+            [
+                InlineKeyboardButton(text="💖 Поиграть", callback_data="pet_care:play"),
+                InlineKeyboardButton(text="😴 Сон", callback_data="pet_care:sleep"),
+            ],
+            [InlineKeyboardButton(text="🔙 В меню", callback_data="pet_care:menu")],
+        ]
+    )
+
+
 def cancel_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=BTN_CANCEL)]],
