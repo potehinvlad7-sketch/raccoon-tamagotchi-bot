@@ -30,7 +30,6 @@ from keyboards import (
     BTN_CANCEL,
     BTN_CONTACT_ADMIN,
     BTN_LETTER_TO_RACCOON,
-    BTN_MENU,
     BTN_MY_RACCOON,
     BTN_SHOP,
     BTN_SHOP_BACK,
@@ -44,10 +43,7 @@ from keyboards import (
     care_menu_keyboard,
     main_menu_keyboard,
     build_shop_keyboard,
-    care_inline_menu_keyboard,
     build_shop_item_keyboard,
-    main_inline_menu_keyboard,
-    shop_inline_menu_keyboard,
     cancel_keyboard,
     training_menu_keyboard,
     TRAVEL_LOCATIONS,
@@ -570,7 +566,7 @@ async def contact_admin_non_text(message: Message) -> None:
 async def care_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await send_optional_screen(message, "care", "Выбери действие ухода:", reply_markup=care_inline_menu_keyboard())
+    await message.answer("Выбери действие ухода:", reply_markup=care_menu_keyboard())
 
 
 @router.message(F.text == BTN_TRAINING)
@@ -644,17 +640,21 @@ async def travel_menu(message: Message) -> None:
 async def shop_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await send_optional_screen(message, "shop", "🛒 Магазин", reply_markup=shop_inline_menu_keyboard())
+    await send_optional_screen(message, "shop", "🛒 Магазин", reply_markup=build_shop_keyboard())
 
 
-@router.message(F.text.in_({BTN_BACK, BTN_MENU}))
+@router.message(F.text == BTN_BACK)
 async def back_to_main(message: Message) -> None:
-    await _open_main_inline_menu(message)
+    if message.from_user is not None:
+        touch_user_needs(message.from_user.id)
+    await send_optional_screen(message, "main_menu", "Главное меню:", reply_markup=main_menu_keyboard())
 
 
 @router.message(F.text == BTN_SHOP_BACK)
 async def back_from_shop(message: Message) -> None:
-    await _open_main_inline_menu(message)
+    if message.from_user is not None:
+        touch_user_needs(message.from_user.id)
+    await send_optional_screen(message, "main_menu", "Главное меню:", reply_markup=main_menu_keyboard())
 
 
 async def _perform_care_action(message: Message, item_key: str) -> None:
@@ -671,14 +671,6 @@ async def _perform_care_action(message: Message, item_key: str) -> None:
         f"{_need_label(item.get('need', ''))} +{item.get('restore', 0)}.",
         reply_markup=care_menu_keyboard(),
     )
-
-
-
-
-async def _open_main_inline_menu(message: Message) -> None:
-    if message.from_user is not None:
-        touch_user_needs(message.from_user.id)
-    await send_optional_screen(message, "main_menu", "Главное меню:", reply_markup=main_inline_menu_keyboard())
 
 
 def _need_label(need: str) -> str:
@@ -972,126 +964,11 @@ async def shop_open_category(message: Message) -> None:
     )
 
 
-@router.callback_query(F.data == "menu:main")
-async def menu_main_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await send_optional_screen(callback.message, "main_menu", "Главное меню:", reply_markup=main_inline_menu_keyboard())
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:pet")
-async def menu_pet_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await show_raccoon(callback.message)
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:care")
-async def menu_care_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await send_optional_screen(callback.message, "care", "Выбери действие ухода:", reply_markup=care_inline_menu_keyboard())
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:travel")
-async def menu_travel_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await travel_menu(callback.message)
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:inventory")
-async def menu_inventory_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await show_inventory(callback.message)
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:shop")
-async def menu_shop_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await send_optional_screen(callback.message, "shop", "🛒 Магазин", reply_markup=shop_inline_menu_keyboard())
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:train")
-async def menu_train_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await training_menu(callback.message)
-    await callback.answer()
-
-
-@router.callback_query(F.data == "menu:letter")
-async def menu_letter_callback(callback: CallbackQuery, state: FSMContext) -> None:
-    if callback.message is None:
-        return
-    await contact_admin_entry(callback.message, state)
-    await callback.answer()
-
-
-@router.callback_query(F.data == "care:feed")
-async def care_feed_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await _perform_care_action(callback.message, "food")
-    await callback.answer()
-
-
-@router.callback_query(F.data == "care:clean")
-async def care_clean_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await _perform_care_action(callback.message, "soap")
-    await callback.answer()
-
-
-@router.callback_query(F.data == "care:play")
-async def care_play_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await _perform_care_action(callback.message, "toy")
-    await callback.answer()
-
-
-@router.callback_query(F.data == "care:sleep")
-async def care_sleep_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    await care_sleep(callback.message)
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("shop:"))
-async def shop_open_category_inline(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    category_id = (callback.data or "").split(":", 1)[1] if ":" in (callback.data or "") else ""
-    if category_id not in {"food", "household", "toys", "potions"}:
-        await callback.answer("Категория недоступна.", show_alert=True)
-        return
-    category = get_shop_categories().get(category_id)
-    if not isinstance(category, dict):
-        await send_optional_screen(callback.message, "shop", "Категория недоступна.", reply_markup=shop_inline_menu_keyboard())
-        await callback.answer()
-        return
-    items = get_shop_items_by_category(category_id)
-    prepared_items = [{**item, "emoji": _resolve_shop_emoji(str(item.get("id", "")), str(item.get("name", "")))} for item in items]
-    await send_optional_screen(callback.message, f"shop_{category_id}", _shop_category_text(category, prepared_items), reply_markup=build_shop_item_keyboard(category_id, prepared_items))
-    await callback.answer()
-
-
 @router.callback_query(F.data.startswith("shop_back:"))
 async def shop_back_to_categories(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
-    await send_optional_screen(callback.message, "shop", "🛒 Магазин", reply_markup=shop_inline_menu_keyboard())
+    await send_optional_screen(callback.message, "shop", "🛒 Магазин", reply_markup=build_shop_keyboard())
     await callback.answer()
 
 

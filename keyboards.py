@@ -3,16 +3,15 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 from storage import get_shop_categories
 
 BTN_STATUS = "📊 Статус"
-BTN_MENU = "📋 Меню"
-BTN_CARE = "❤️ Уход"
-BTN_TRAINING = "💪 Тренировка"
-BTN_TRAVEL = "🗺 Путешествие"
-BTN_SHOP = "🏪 Магазин"
+BTN_CARE = "🧼 Уход"
+BTN_TRAINING = "💪 Тренировки"
+BTN_TRAVEL = "🌲 Путешествие"
+BTN_SHOP = "🛒 Магазин"
 BTN_INVENTORY = "🎒 Инвентарь"
 BTN_MY_RACCOON = "🦝 Мой енот"
 BTN_HELP = "❔ Помощь"
 BTN_CONTACT_ADMIN = "📨 Написать админу"
-BTN_LETTER_TO_RACCOON = "✉️ Письмо"
+BTN_LETTER_TO_RACCOON = "💌 Дать енотику письмо"
 BTN_CANCEL = "❌ Отмена"
 BTN_BACK = "⬅️ В главное меню"
 BTN_SHOP_BACK = "⬅️ Назад"
@@ -157,48 +156,14 @@ def gender_keyboard() -> ReplyKeyboardMarkup:
 def main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text=BTN_MY_RACCOON), KeyboardButton(text=BTN_MENU)],
-            [KeyboardButton(text=BTN_TRAVEL), KeyboardButton(text=BTN_LETTER_TO_RACCOON)],
+            [KeyboardButton(text=BTN_STATUS), KeyboardButton(text=BTN_CARE)],
+            [KeyboardButton(text=BTN_TRAINING), KeyboardButton(text=BTN_TRAVEL)],
+            [KeyboardButton(text=BTN_SHOP), KeyboardButton(text=BTN_INVENTORY)],
+            [KeyboardButton(text=BTN_MY_RACCOON)],
+            [KeyboardButton(text=BTN_HELP)],
+            [KeyboardButton(text=BTN_LETTER_TO_RACCOON)],
         ],
         resize_keyboard=True,
-    )
-
-
-def main_inline_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=BTN_MY_RACCOON, callback_data="menu:pet")],
-            [InlineKeyboardButton(text=BTN_CARE, callback_data="menu:care")],
-            [InlineKeyboardButton(text=BTN_TRAVEL, callback_data="menu:travel")],
-            [InlineKeyboardButton(text=BTN_INVENTORY, callback_data="menu:inventory")],
-            [InlineKeyboardButton(text=BTN_SHOP, callback_data="menu:shop")],
-            [InlineKeyboardButton(text=BTN_TRAINING, callback_data="menu:train")],
-            [InlineKeyboardButton(text=BTN_LETTER_TO_RACCOON, callback_data="menu:letter")],
-        ],
-    )
-
-
-def care_inline_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🍗 Покормить", callback_data="care:feed")],
-            [InlineKeyboardButton(text="🧼 Помыть", callback_data="care:clean")],
-            [InlineKeyboardButton(text="💖 Поиграть", callback_data="care:play")],
-            [InlineKeyboardButton(text=BTN_CARE_SLEEP, callback_data="care:sleep")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:main")],
-        ],
-    )
-
-
-def shop_inline_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🍗 Еда", callback_data="shop:food")],
-            [InlineKeyboardButton(text="🧴 Хозмаг", callback_data="shop:household")],
-            [InlineKeyboardButton(text="🧸 Игрушки", callback_data="shop:toys")],
-            [InlineKeyboardButton(text="🧪 Зелья", callback_data="shop:potions")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="menu:main")],
-        ],
     )
 
 
@@ -268,7 +233,7 @@ def build_shop_item_keyboard(category_id: str, items: list[dict]) -> InlineKeybo
         item_name = str(item.get("name", "Предмет"))
         item_emoji = str(item.get("emoji", "🛒"))
         rows.append([build_buy_button(item_id, item_name, item_emoji)])
-    rows.append([InlineKeyboardButton(text="⬅️ Категории", callback_data="menu:shop")])
+    rows.append([InlineKeyboardButton(text="⬅️ Категории", callback_data=f"shop_back:{category_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
