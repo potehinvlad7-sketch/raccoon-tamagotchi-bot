@@ -698,6 +698,25 @@ def _format_time_left(time_left: timedelta) -> str:
     return f"{hours} ч {minutes} мин"
 
 
+async def _refresh_pet_care_card(callback: CallbackQuery, pet: dict, result_text: str) -> None:
+    message = callback.message
+    if message is None:
+        return
+
+    updated_text = f"{result_text}\n\n{_status_text(pet)}"
+    try:
+        if message.photo:
+            await message.edit_caption(caption=updated_text, reply_markup=pet_care_inline_keyboard())
+            return
+        await message.edit_text(updated_text, reply_markup=pet_care_inline_keyboard())
+        return
+    except TelegramAPIError:
+        pass
+
+    await message.answer(updated_text, reply_markup=pet_care_inline_keyboard())
+
+
+
 @router.message(F.text == BTN_CARE_APPLE)
 async def care_apple(message: Message) -> None:
     await _perform_care_action(message, "food")
@@ -789,27 +808,31 @@ async def _handle_pet_care_callback_action(callback: CallbackQuery, action: str)
 
     action_to_item = {"feed": "food", "clean": "soap", "play": "toy"}
     if action in action_to_item:
-        ok, text = await _perform_care_action_for_user(callback.from_user.id, action_to_item[action])
-        await callback.message.answer(text, reply_markup=pet_care_inline_keyboard())
+        _, text = await _perform_care_action_for_user(callback.from_user.id, action_to_item[action])
+        pet_state = (touch_user_needs(callback.from_user.id) or get_user(callback.from_user.id) or {}).get("pet", pet)
+        await _refresh_pet_care_card(callback, pet_state if isinstance(pet_state, dict) else pet, f"✅ {text}")
         await callback.answer()
         return
     if action == "sleep":
         result = sleep_pet(callback.from_user.id)
         if result.get("available"):
-            await callback.message.answer(
-                "🌙 Енотик сладко поспал и восстановил силы.\n⚡ Энергия полностью восстановлена.",
-                reply_markup=pet_care_inline_keyboard(),
+            pet_state = (touch_user_needs(callback.from_user.id) or get_user(callback.from_user.id) or {}).get("pet", pet)
+            await _refresh_pet_care_card(
+                callback,
+                pet_state if isinstance(pet_state, dict) else pet,
+                "😴 Енотик сладко поспал.\nЭнергия восстановлена.",
             )
             await callback.answer()
             return
         time_left = result.get("time_left")
         formatted = _format_time_left(time_left) if isinstance(time_left, timedelta) else "неизвестно"
-        await callback.message.answer(
-            "🌙 Енотик уже отдыхал сегодня.\n\n"
+        pet_state = (touch_user_needs(callback.from_user.id) or get_user(callback.from_user.id) or {}).get("pet", pet)
+        await _refresh_pet_care_card(
+            callback,
+            pet_state if isinstance(pet_state, dict) else pet,
+            "😴 Сон пока недоступен.\n"
             f"Бесплатный сон будет доступен через: {formatted}.\n"
-            "⚡ Энергия постепенно восстановится в течение дня.\n"
-            "Также можно использовать зелья энергии.",
-            reply_markup=pet_care_inline_keyboard(),
+            "Энергия также постепенно восстановится в течение дня, или можно использовать зелья.",
         )
         await callback.answer()
         return
