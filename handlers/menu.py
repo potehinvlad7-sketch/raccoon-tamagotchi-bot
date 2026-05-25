@@ -1,4 +1,5 @@
 import random
+from datetime import timedelta
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -20,6 +21,7 @@ from keyboards import (
     BTN_CARE_FUN_TOY,
     BTN_CARE_HEARTY_SNACK,
     BTN_CARE_SHAMPOO,
+    BTN_CARE_SLEEP,
     BTN_CARE_SMALL_ENERGY,
     BTN_CARE_SOAP,
     BTN_CARE_YARN_BALL,
@@ -70,6 +72,7 @@ from storage import (
     refresh_user_metadata,
     touch_user_needs,
     train_skill,
+    sleep_pet,
     update_pet_mood,
     update_pet_need,
 )
@@ -674,6 +677,13 @@ def _need_label(need: str) -> str:
     return {"satiety": "Сытость", "cleanliness": "Чистота", "love": "Любовь", "energy": "Энергия"}.get(need, "Параметр")
 
 
+def _format_time_left(time_left: timedelta) -> str:
+    total_seconds = max(0, int(time_left.total_seconds()))
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    return f"{hours} ч {minutes} мин"
+
+
 @router.message(F.text == BTN_CARE_APPLE)
 async def care_apple(message: Message) -> None:
     await _perform_care_action(message, "food")
@@ -727,6 +737,29 @@ async def care_small_energy(message: Message) -> None:
 @router.message(F.text == BTN_CARE_BIG_ENERGY)
 async def care_big_energy(message: Message) -> None:
     await _perform_care_action(message, "big_energy_potion")
+
+
+@router.message(F.text == BTN_CARE_SLEEP)
+async def care_sleep(message: Message) -> None:
+    if message.from_user is None:
+        return
+    result = sleep_pet(message.from_user.id)
+    if result.get("available"):
+        await message.answer(
+            "🌙 Енотик сладко поспал и восстановил силы.\n"
+            "⚡ Энергия полностью восстановлена.",
+            reply_markup=care_menu_keyboard(),
+        )
+        return
+    time_left = result.get("time_left")
+    formatted = _format_time_left(time_left) if isinstance(time_left, timedelta) else "неизвестно"
+    await message.answer(
+        "🌙 Енотик уже отдыхал сегодня.\n\n"
+        f"Бесплатный сон будет доступен через: {formatted}.\n"
+        "⚡ Энергия постепенно восстановится в течение дня.\n"
+        "Также можно использовать зелья энергии.",
+        reply_markup=care_menu_keyboard(),
+    )
 
 
 @router.message(F.text == BTN_TRAIN_STRENGTH)

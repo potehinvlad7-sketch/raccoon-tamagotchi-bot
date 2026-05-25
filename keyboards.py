@@ -32,6 +32,7 @@ BTN_CARE_YARN_BALL = "🧶 Клубок"
 BTN_CARE_FUN_TOY = "🪀 Игрушка"
 BTN_CARE_SMALL_ENERGY = "⚡ Малое зелье"
 BTN_CARE_BIG_ENERGY = "🔋 Большое зелье"
+BTN_CARE_SLEEP = "😴 Сон"
 
 BTN_TRAIN_STRENGTH = "💪 Сила"
 BTN_TRAIN_AGILITY = "💨 Ловкость"
@@ -191,6 +192,7 @@ def care_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=BTN_CARE_SOAP), KeyboardButton(text=BTN_CARE_SHAMPOO), KeyboardButton(text=BTN_CARE_COMB)],
             [KeyboardButton(text=BTN_CARE_BALL), KeyboardButton(text=BTN_CARE_YARN_BALL), KeyboardButton(text=BTN_CARE_FUN_TOY)],
             [KeyboardButton(text=BTN_CARE_SMALL_ENERGY), KeyboardButton(text=BTN_CARE_BIG_ENERGY)],
+            [KeyboardButton(text=BTN_CARE_SLEEP)],
             [KeyboardButton(text=BTN_BACK)],
         ],
         resize_keyboard=True,
