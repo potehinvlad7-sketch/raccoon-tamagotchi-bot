@@ -236,7 +236,7 @@ def _travel_event_line(event: dict | None) -> str:
     if not isinstance(event, dict):
         return "🌿 Событие: спокойная прогулка."
     if event.get("id") == "retreat_high_route":
-        return "Енотик услышал шорох впереди и с ужасом убежал обратно. Путь туда пока слишком опасен."
+        return "🌲 Енотик услышал тревожный шорох и с ужасом убежал обратно.\nПохоже, к этой дороге он пока не готов."
     if bool(event.get("is_boss")):
         return "👑 Хранитель пути преградил дорогу.\nПока он не побеждён, новая локация не откроется."
     if event.get("type") == "enemy":
@@ -350,32 +350,62 @@ def _inventory_text(pet: dict) -> str:
     )
 
 
+
+
+def _reward_lines(exp: int, currency: int) -> list[str]:
+    lines: list[str] = []
+    if isinstance(exp, int) and exp > 0:
+        lines.append(f"• ✨ Опыт: +{exp}")
+    if isinstance(currency, int) and currency > 0:
+        lines.append(f"• 🪙 Монеты: +{currency}")
+    return lines
+
+
+def _reward_block(exp: int, currency: int, empty_text: str | None = None) -> str:
+    lines = _reward_lines(exp, currency)
+    if lines:
+        return "Награда:\n" + "\n".join(lines)
+    return empty_text if empty_text else ""
+
+
 def format_travel_result_after_battle(pet: dict, battle: dict, section_title: str, section_lines: list[str]) -> str:
     pet_name = str(pet.get("name", "Енот"))
     level_up_line = ""
     if int(battle.get("levels_gained", 0)) > 0:
         level_up_line = f"\n\n✨ Новый уровень! {pet_name} достиг уровня {pet.get('level', 1)}."
-    boss_line = ""
     event_line = "⚔️ Событие: встреча с противником."
     if battle.get("is_boss"):
         if battle.get("boss_failed") or battle.get("boss_blocked"):
-            event_line = "👑 Хранитель пути оказался сильнее. Новая локация всё ещё закрыта."
+            event_line = (
+                "👑 Хранитель пути оказался сильнее.\n"
+                "Енотик отступил, но запомнил дорогу."
+            )
         elif battle.get("boss_defeated"):
             if battle.get("level_gained"):
                 gained_exp = int(battle.get("boss_missing_exp_reward", battle.get("extra_exp", 0)))
                 event_line = (
-                    "👑 Хранитель пути повержен.\n"
-                    "Енотик набрался смелости и шагнул дальше.\n"
+                    "👑 Хранитель пути повержен!\n"
+                    "Енотик доказал, что готов идти дальше.\n"
+                    "Победа закрыла недостающий опыт до нового уровня.\n\n"
                     f"✨ Получено опыта: +{gained_exp}\n"
-                    f"📌 Новый уровень: {battle.get('level_after', pet.get('level', 1))}"
+                    f"📌 Новый уровень: {battle.get('level_after', pet.get('level', 1))}\n"
+                    "🗺 Открыта новая локация."
                 )
             else:
-                event_line = "👑 Хранитель пути повержен, но енотику ещё нужно немного опыта."
+                event_line = (
+                    "👑 Хранитель пути повержен!\n"
+                    "Путь дальше открыт, но енотику ещё нужно немного опыта."
+                )
     item_lines = [
         f"• {ITEM_LABELS[item]} x{amount}"
         for item, amount in (battle.get("items_delta", {}) if isinstance(battle.get("items_delta"), dict) else {}).items()
         if isinstance(amount, int) and amount > 0 and item in ITEM_LABELS
     ]
+    reward_block = _reward_block(
+        int(battle.get("base_exp", 0)),
+        int(battle.get("base_currency", 0)),
+        empty_text="Награды нет.",
+    )
     return (
         f"{TRAVEL_LOCATIONS.get(battle.get('location_id', ''), {}).get('button', '🌲 Локация')}\n\n"
         f"{pet_name} вернулся из прогулки, весь важный и немного в листьях.\n\n"
@@ -383,14 +413,12 @@ def format_travel_result_after_battle(pet: dict, battle: dict, section_title: st
         f"• ⚡ Энергия: -{battle.get('spent_energy', 0)}\n"
         f"• 🍽 Сытость: -{battle.get('spent_satiety', 0)}\n"
         f"• 🧼 Чистота: -{battle.get('spent_cleanliness', 0)}\n\n"
-        "Награда:\n"
-        f"• ✨ Опыт: +{battle.get('base_exp', 0)}\n"
-        f"• 🪙 Монеты: +{battle.get('base_currency', 0)}\n\n"
+        + reward_block
+        + "\n\n"
         f"{event_line}\n\n"
         f"{section_title}\n"
         + "\n".join(section_lines)
         + ("\n\nДополнительно из события:\n" + "\n".join(item_lines) if item_lines else "")
-        + boss_line
         + level_up_line
         + _blocked_levelup_text(pet)
     )
@@ -768,16 +796,16 @@ async def travel_to_location(message: Message) -> None:
     location_name = (location or {}).get("name", "Локация")
     spent = result or {}
     level_up_line = f"\n\n✨ Новый уровень! Енот достиг уровня {pet.get('level', 1)}." if levels_gained > 0 else ""
+    reward_block = _reward_block(int(spent.get("exp", 0)), int(spent.get("currency", 0)))
     text = (
         f"🌲 {location_name}\n\n"
         "Енот вернулся из прогулки, весь важный и немного в листьях.\n\n"
         "Потрачено:\n"
         f"• ⚡ Энергия: -{spent.get('energy', 0)}\n"
         f"• 🍽 Сытость: -{spent.get('satiety', 0)}\n"
-        f"• 🧼 Чистота: -{spent.get('cleanliness', 0)}\n\n"
-        "Награда:\n"
-        f"• ✨ Опыт: +{spent.get('exp', 0)}\n"
-        f"• 🪙 Монеты: +{spent.get('currency', 0)}\n\n"
+        f"• 🧼 Чистота: -{spent.get('cleanliness', 0)}"
+        + (f"\n\n{reward_block}" if reward_block else "")
+        + "\n\n"
         + _travel_event_line(event if isinstance(event, dict) else None)
         + level_up_line
     )
