@@ -65,6 +65,7 @@ from storage import (
     LEGEND_LEVEL,
     get_enemy,
     get_pet_max_needs,
+    get_pet_status_phrase,
     get_runaway_risk,
     get_item_catalog,
     get_shop_categories,
@@ -259,9 +260,12 @@ def _status_text(pet: dict) -> str:
     mood = _localize_mood(update_pet_mood(pet))
     risk = get_runaway_risk(pet)
     max_needs = get_pet_max_needs(pet)
+    phrase = get_pet_status_phrase(pet)
     lines = [
         f"🦝 Енот: {pet.get('name', '-')}",
         f"😊 Настроение: {mood}",
+        "",
+        phrase,
         "",
         "🍽 Сытость",
         format_bar(pet.get("satiety", 80), max_needs["satiety"]),
@@ -294,11 +298,13 @@ def _raccoon_profile_text(pet: dict) -> str:
     exp_line = "✨ Опыт: максимум достигнут" if next_exp is None else f"✨ Опыт: {safe_exp} / {next_exp}"
     level_line = f"📌 Уровень: {safe_level} 👑 Легенда" if is_legendary else f"📌 Уровень: {safe_level}"
     max_needs = get_pet_max_needs(pet)
+    phrase = get_pet_status_phrase(pet)
     return (
         f"🦝 {pet.get('name', '-')}\n\n"
         f"{level_line}\n"
         f"{exp_line}\n"
         f"😊 Настроение: {mood}\n"
+        f"{phrase}\n"
         f"📈 Максимум шкал: {max_needs['satiety']}\n\n"
         "💪 Навыки:\n"
         f"• Сила: {skills.get('strength', 0)}\n"
