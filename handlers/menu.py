@@ -68,6 +68,7 @@ from storage import (
     get_pet_status_phrase,
     get_runaway_risk,
     get_item_catalog,
+    get_inventory_category_count,
     get_shop_categories,
     get_shop_item,
     get_shop_items_by_category,
@@ -223,11 +224,20 @@ def _travel_buttons_for_level(level: int) -> list[str]:
 
 def _travel_location_ids_for_level(level: int) -> set[str]:
     return {location_id for location_id, _ in _select_travel_window(level)}
-def format_bar(value: int, maximum: int = 100, length: int = 10) -> str:
-    safe_maximum = maximum if maximum > 0 else 100
+def _need_bar(value: int, maximum: int = 100, length: int = 10) -> str:
+    safe_maximum = maximum if isinstance(maximum, int) and maximum > 0 else 100
     clamped = max(0, min(value if isinstance(value, int) else 0, safe_maximum))
     filled = round((clamped / safe_maximum) * length)
-    return f"{'█' * filled}{'░' * (length - filled)} {clamped}/{safe_maximum}"
+    return f"{'▰' * filled}{'░' * (length - filled)} {clamped}/{safe_maximum}"
+
+
+def _need_block(title: str, emoji: str, current: int, max_value: int, inventory_label: str, inventory_count: int) -> str:
+    safe_count = inventory_count if isinstance(inventory_count, int) and inventory_count >= 0 else 0
+    return (
+        f"{emoji} {title}\n"
+        f"{_need_bar(current, max_value)}\n"
+        f"🎒 {inventory_label}: {safe_count} шт."
+    )
 
 
 def _localize_mood(mood: str) -> str:
@@ -267,17 +277,13 @@ def _status_text(pet: dict) -> str:
         "",
         phrase,
         "",
-        "🍽 Сытость",
-        format_bar(pet.get("satiety", 80), max_needs["satiety"]),
+        _need_block("Сытость", "🍽", pet.get("satiety", 80), max_needs["satiety"], "Еда в инвентаре", get_inventory_category_count(pet, "food")),
         "",
-        "🧼 Чистота",
-        format_bar(pet.get("cleanliness", 80), max_needs["cleanliness"]),
+        _need_block("Чистота", "🧼", pet.get("cleanliness", 80), max_needs["cleanliness"], "Средства ухода", get_inventory_category_count(pet, "cleanliness")),
         "",
-        "💞 Любовь",
-        format_bar(pet.get("love", 80), max_needs["love"]),
+        _need_block("Любовь", "💖", pet.get("love", 80), max_needs["love"], "Игрушки", get_inventory_category_count(pet, "love")),
         "",
-        "⚡ Энергия",
-        format_bar(pet.get("energy", 80), max_needs["energy"]),
+        _need_block("Энергия", "⚡", pet.get("energy", 80), max_needs["energy"], "Зелья энергии", get_inventory_category_count(pet, "energy")),
     ]
     if risk in RISK_MAP:
         lines.extend(["", f"⚠️ Риск побега: {RISK_MAP[risk]}", "Еноту нужно больше любви."])
@@ -304,8 +310,11 @@ def _raccoon_profile_text(pet: dict) -> str:
         f"{level_line}\n"
         f"{exp_line}\n"
         f"😊 Настроение: {mood}\n"
-        f"{phrase}\n"
-        f"📈 Максимум шкал: {max_needs['satiety']}\n\n"
+        f"{phrase}\n\n"
+        f"{_need_block('Сытость', '🍽', pet.get('satiety', 80), max_needs['satiety'], 'Еда в инвентаре', get_inventory_category_count(pet, 'food'))}\n\n"
+        f"{_need_block('Чистота', '🧼', pet.get('cleanliness', 80), max_needs['cleanliness'], 'Средства ухода', get_inventory_category_count(pet, 'cleanliness'))}\n\n"
+        f"{_need_block('Любовь', '💖', pet.get('love', 80), max_needs['love'], 'Игрушки', get_inventory_category_count(pet, 'love'))}\n\n"
+        f"{_need_block('Энергия', '⚡', pet.get('energy', 80), max_needs['energy'], 'Зелья энергии', get_inventory_category_count(pet, 'energy'))}\n\n"
         "💪 Навыки:\n"
         f"• Сила: {skills.get('strength', 0)}\n"
         f"• Ловкость: {skills.get('agility', 0)}\n"
