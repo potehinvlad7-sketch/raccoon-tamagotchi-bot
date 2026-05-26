@@ -24,6 +24,8 @@ from storage import (
     get_pet_max_needs,
     get_storage_stats,
     get_user_by_id,
+    get_notification_log,
+    get_notification_log_stats,
     refresh_user_metadata,
     refresh_user_metadata_from_chat,
 )
@@ -77,6 +79,7 @@ def _admin_panel_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:bcast:menu")],
         [InlineKeyboardButton(text="💾 Backup JSON", callback_data="admin:backup")],
         [InlineKeyboardButton(text="🔄 Обновить пользователей", callback_data="admin:refresh_users")],
+        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="admin:notifications")],
         [InlineKeyboardButton(text="🔙 В главное меню", callback_data="admin:main")],
     ])
 
@@ -194,6 +197,50 @@ def _format_stats() -> str:
     )
 
 
+
+
+def _format_notification_event(index: int, event: dict) -> str:
+    status = str(event.get("status", "skipped"))
+    icon = "✅" if status == "sent" else "⚠️" if status == "failed" else "⏭"
+    username = event.get("username")
+    first_name = event.get("first_name")
+    needs = event.get("needs") if isinstance(event.get("needs"), dict) else {}
+    lines = [
+        f"{index}) {icon} {event.get('sent_at', 'неизвестно').replace('T', ' ')[:16]} UTC",
+        f"   user_id: {event.get('user_id', 'нет')}",
+        f"   username: @{username}" if isinstance(username, str) and username else "   username: нет",
+        f"   имя: {first_name}" if isinstance(first_name, str) and first_name else "   имя: нет",
+        f"   питомец: {event.get('pet_name') or 'нет'}",
+        f"   причина: {event.get('reason', 'нет')}",
+    ]
+    labels = {"satiety": "🍽 Сытость", "cleanliness": "🧼 Чистота", "love": "💖 Любовь", "energy": "⚡ Энергия"}
+    for need, payload in needs.items():
+        if isinstance(payload, dict):
+            lines.append(f"   {labels.get(need, need)}: {payload.get('current', 0)}/{payload.get('max', 0)}")
+    if status == "failed" and event.get("error"):
+        lines.append(f"   ошибка: {event.get('error')}")
+    return "\n".join(lines)
+
+
+def _format_notifications_admin_text() -> str:
+    stats = get_notification_log_stats()
+    events = get_notification_log(limit=15)
+    last = stats.get('last_sent_at')
+    last_text = last.replace('T', ' ')[:16] + ' UTC' if isinstance(last, str) else 'нет'
+    header = (
+        "🔔 Автоуведомления питомцев\n\n"
+        f"Всего записей: {stats.get('total', 0)}\n"
+        f"Отправлено: {stats.get('sent', 0)}\n"
+        f"Ошибок: {stats.get('failed', 0)}\n"
+        f"Пропущено: {stats.get('skipped', 0)}\n"
+        f"За 24 часа: {stats.get('last_24h', 0)}\n"
+        f"Последнее: {last_text}\n\n"
+        "Последние события:\n"
+    )
+    if not events:
+        return header + "нет записей"
+    lines=[_format_notification_event(i, e) for i,e in enumerate(reversed(events),1)]
+    return header + "\n\n".join(lines)
 def _format_user_line(user_id: int, user: dict) -> str:
     username_raw = user.get("username") if isinstance(user, dict) else None
     username = f"@{username_raw}" if isinstance(username_raw, str) and username_raw else "без username"
@@ -435,6 +482,8 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
                 )
                 BROADCAST_DRAFTS.pop(callback.from_user.id, None)
                 await state.clear()
+        elif data == "admin:notifications":
+            await safe_admin_edit_or_answer(callback, _format_notifications_admin_text(), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")]]))
         elif data == "admin:stats":
             await safe_admin_edit_or_answer(callback, _format_stats(), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")]]))
         elif data == "admin:backup":

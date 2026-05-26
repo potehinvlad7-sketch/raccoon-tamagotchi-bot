@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup
-from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 
 from keyboards import (
     BTN_BACK,
@@ -85,6 +85,9 @@ from storage import (
     sleep_pet,
     update_pet_mood,
     update_pet_need,
+    should_send_low_needs_notification,
+    mark_low_needs_notification_sent,
+    append_notification_log,
 )
 
 router = Router()
@@ -93,7 +96,7 @@ router = Router()
 class AdminMessageState(StatesGroup):
     waiting_for_admin_message = State()
 
-MOOD_MAP = {"happy": "счастливый", "normal": "обычное", "tired": "уставший", "distressed": "тревожный"}
+MOOD_MAP = {"excellent": "отличное", "content": "довольный", "calm": "спокойный", "tired": "усталый", "hungry": "голодный", "dirty": "грязный", "sad": "грустный", "anxious": "тревожный", "critical": "в критическом состоянии", "happy": "счастливый", "normal": "обычное", "distressed": "тревожный"}
 RISK_MAP = {"low": "низкий", "medium": "средний", "high": "высокий"}
 TRAVEL_EVENT_MAP = {
     "peaceful walk through the forest": "спокойная прогулка по лесной тропе 🌲",
@@ -463,6 +466,11 @@ async def show_status(message: Message) -> None:
         return
     refresh_user_metadata(message.from_user.id, message.from_user)
     user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
+    await _maybe_send_low_needs_notification(message, user)
+    await _maybe_send_low_needs_notification(message, user)
+    await _maybe_send_low_needs_notification(message, user)
+    await _maybe_send_low_needs_notification(message, user)
+    await _maybe_send_low_needs_notification(message, user)
     pet = (user or {}).get("pet") if isinstance(user, dict) else None
     if not isinstance(pet, dict):
         await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
@@ -1030,6 +1038,58 @@ def _get_first_available_item_by_category(pet: dict, category: str) -> str | Non
         if isinstance(count, int) and count > 0:
             return item_id
     return None
+
+
+
+NEED_LABELS = {"satiety": "🍽 Сытость", "cleanliness": "🧼 Чистота", "love": "💖 Любовь", "energy": "⚡ Энергия"}
+
+
+def _build_low_needs_notification_text(alert: dict, pet: dict) -> str:
+    needs = alert.get("needs", {}) if isinstance(alert, dict) else {}
+    reason = str(alert.get("reason", ""))
+    if reason == "low_energy" and list(needs.keys()) == ["energy"]:
+        return "⚡ Енотик устал, но энергия постепенно восстановится сама. Можно также использовать зелья энергии."
+
+    lines = ["🔔 Енотик тихонько тянет тебя за рукав.", "", "У него сейчас просели параметры:"]
+    for key, payload in needs.items():
+        if isinstance(payload, dict):
+            lines.append(f"{NEED_LABELS.get(key, key)}: {payload.get('current', 0)}/{payload.get('max', 0)}")
+    lines.extend([
+        "",
+        "Энергия сама восстановится в течение дня.",
+        "А сытость, чистоту и любовь можно поднять через карточку статуса или инвентарь.",
+    ])
+    return "\n".join(lines)
+
+
+async def _maybe_send_low_needs_notification(message: Message, user: dict | None) -> None:
+    if message.from_user is None or not isinstance(user, dict):
+        return
+    pet = user.get("pet")
+    if not isinstance(pet, dict):
+        return
+    should_send, alert = should_send_low_needs_notification(pet)
+    if not alert:
+        return
+    user_info = {"user_id": message.from_user.id, "username": message.from_user.username, "first_name": message.from_user.first_name}
+    base_log = {
+        "sent_at": __import__('datetime').datetime.now(__import__('datetime').UTC).isoformat(),
+        "user_id": user_info["user_id"],
+        "username": user_info["username"],
+        "first_name": user_info["first_name"],
+        "pet_name": pet.get("name"),
+        "reason": alert.get("reason"),
+        "needs": alert.get("needs", {}),
+    }
+    if not should_send:
+        append_notification_log({**base_log, "status": "skipped"})
+        return
+    try:
+        await message.answer(_build_low_needs_notification_text(alert, pet))
+        mark_low_needs_notification_sent(message.from_user.id)
+        append_notification_log({**base_log, "status": "sent"})
+    except (TelegramForbiddenError, TelegramBadRequest, TelegramAPIError) as exc:
+        append_notification_log({**base_log, "status": "failed", "error": exc.__class__.__name__})
 
 def _need_label(need: str) -> str:
     return {"satiety": "Сытость", "cleanliness": "Чистота", "love": "Любовь", "energy": "Энергия"}.get(need, "Параметр")
