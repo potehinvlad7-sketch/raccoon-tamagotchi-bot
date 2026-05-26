@@ -570,6 +570,43 @@ async def contact_admin_non_text(message: Message) -> None:
     await message.answer("Пожалуйста, отправьте текстовое сообщение.")
 
 
+
+
+async def _edit_magic_sword_message(callback: CallbackQuery, text: str, reply_markup) -> None:
+    if callback.message is None:
+        await callback.answer()
+        return
+    try:
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await callback.answer()
+        return
+    except TelegramBadRequest as exc:
+        error_text = str(exc).lower()
+        if "message is not modified" in error_text:
+            await callback.answer()
+            return
+        if any(
+            known in error_text
+            for known in (
+                "message can't be edited",
+                "message to edit not found",
+                "there is no text in the message to edit",
+            )
+        ):
+            pass
+        else:
+            await callback.answer()
+            return
+    except TelegramAPIError:
+        await callback.answer()
+        return
+
+    try:
+        await callback.message.answer(text, reply_markup=reply_markup)
+    finally:
+        await callback.answer()
+
+
 @router.message(F.text == BTN_CARE)
 async def care_menu(message: Message) -> None:
     user_id = message.from_user.id if message.from_user is not None else None
@@ -582,23 +619,37 @@ async def training_menu(message: Message) -> None:
     await _render_training_menu(message, user_id)
 
 
-async def _render_training_menu(target: Message, user_id: int | None) -> None:
-    if user_id is not None:
-        touch_user_needs(user_id)
-    await target.answer(
+def _training_menu_text() -> str:
+    return (
         "💪 Тренировки\n\n"
         "Для тренировки нужен подходящий свиток, который редко находится в путешествиях.\n\n"
         "• Сила — 📜 Свиток силы\n"
         "• Ловкость — 📜 Свиток ловкости\n"
-        "• Инстинкт — 📜 Свиток инстинкта",
-        reply_markup=magic_training_inline_keyboard(),
+        "• Инстинкт — 📜 Свиток инстинкта"
     )
+
+
+async def _render_training_menu(target: Message, user_id: int | None) -> None:
+    if user_id is not None:
+        touch_user_needs(user_id)
+    await target.answer(_training_menu_text(), reply_markup=magic_training_inline_keyboard())
 
 
 @router.message(F.text == BTN_POTIONS)
 async def potion_menu(message: Message) -> None:
     user_id = message.from_user.id if message.from_user is not None else None
     await _render_potion_menu(message, user_id)
+
+
+def _potion_menu_text(pet: dict) -> str:
+    inventory = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
+    return (
+        "🧪 Зелья\n\n"
+        "Доступные зелья в инвентаре:\n"
+        f"• ⚡ Малое зелье: {inventory.get('energy_potion', 0)}\n"
+        f"• 🔋 Большое зелье: {inventory.get('big_energy_potion', 0)}\n\n"
+        "Чтобы использовать зелье, выберите его кнопкой ниже."
+    )
 
 
 async def _render_potion_menu(target: Message, user_id: int | None) -> None:
@@ -609,15 +660,7 @@ async def _render_potion_menu(target: Message, user_id: int | None) -> None:
     if not isinstance(pet, dict):
         await target.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-    inventory = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
-    await target.answer(
-        "🧪 Зелья\n\n"
-        "Доступные зелья в инвентаре:\n"
-        f"• ⚡ Малое зелье: {inventory.get('energy_potion', 0)}\n"
-        f"• 🔋 Большое зелье: {inventory.get('big_energy_potion', 0)}\n\n"
-        "Чтобы использовать зелье, выберите его кнопкой ниже.",
-        reply_markup=magic_potions_inline_keyboard(),
-    )
+    await target.answer(_potion_menu_text(pet), reply_markup=magic_potions_inline_keyboard())
 
 
 @router.message(F.text == BTN_MAGIC)
@@ -626,15 +669,18 @@ async def magic_placeholder(message: Message) -> None:
     await _render_magic_placeholder(message, user_id)
 
 
+def _magic_placeholder_text() -> str:
+    return (
+        "✨ Магия\n\n"
+        "Магические свитки пока покрыты енотовыми каракулями.\n"
+        "Этот раздел откроется позже."
+    )
+
+
 async def _render_magic_placeholder(target: Message, user_id: int | None) -> None:
     if user_id is not None:
         touch_user_needs(user_id)
-    await target.answer(
-        "✨ Магия\n\n"
-        "Магические свитки пока покрыты енотовыми каракулями.\n"
-        "Этот раздел откроется позже.",
-        reply_markup=magic_single_back_inline_keyboard("magic_placeholder:back"),
-    )
+    await target.answer(_magic_placeholder_text(), reply_markup=magic_single_back_inline_keyboard("magic_placeholder:back"))
 
 
 @router.message(F.text == "🔙 Назад")
@@ -650,6 +696,16 @@ async def skills_menu(message: Message) -> None:
     await _render_skills_menu(message, user_id)
 
 
+def _skills_menu_text(pet: dict) -> str:
+    return (
+        "📊 Навыки\n\n"
+        f"💪 Сила: {pet.get('strength', 1)}\n"
+        f"🤸 Ловкость: {pet.get('agility', 1)}\n"
+        f"🧠 Инстинкт: {pet.get('instinct', 1)}\n\n"
+        "Навыки помогают чаще побеждать в боях и увереннее встречать хранителей пути."
+    )
+
+
 async def _render_skills_menu(target: Message, user_id: int | None) -> None:
     if user_id is None:
         return
@@ -658,55 +714,58 @@ async def _render_skills_menu(target: Message, user_id: int | None) -> None:
     if not isinstance(pet, dict):
         await target.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-    await target.answer(
-        "📊 Навыки\n\n"
-        f"💪 Сила: {pet.get('strength', 1)}\n"
-        f"🤸 Ловкость: {pet.get('agility', 1)}\n"
-        f"🧠 Инстинкт: {pet.get('instinct', 1)}\n\n"
-        "Навыки помогают чаще побеждать в боях и увереннее встречать хранителей пути.",
-        reply_markup=magic_single_back_inline_keyboard("magic_skills:back"),
-    )
+    await target.answer(_skills_menu_text(pet), reply_markup=magic_single_back_inline_keyboard("magic_skills:back"))
 
 
 @router.callback_query(F.data == "magic_sword:train")
 async def magic_sword_train_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
     if callback.message is None:
+        await callback.answer()
         return
     user_id = callback.from_user.id if callback.from_user is not None else None
     if user_id is None or not _has_pet(user_id):
         await callback.message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-    await _render_training_menu(callback.message, user_id)
+    await _edit_magic_sword_message(callback, _training_menu_text(), magic_training_inline_keyboard())
 
 
 @router.callback_query(F.data == "magic_sword:potions")
 async def magic_sword_potions_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
     if callback.message is None:
+        await callback.answer()
         return
     user_id = callback.from_user.id if callback.from_user is not None else None
-    await _render_potion_menu(callback.message, user_id)
+    user = touch_user_needs(user_id) or get_user(user_id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await _edit_magic_sword_message(callback, "У тебя пока нет енота. Нажми /start, чтобы создать питомца.", None)
+        return
+    await _edit_magic_sword_message(callback, _potion_menu_text(pet), magic_potions_inline_keyboard())
 
 
 @router.callback_query(F.data == "magic_sword:magic")
 async def magic_sword_magic_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
     if callback.message is None:
+        await callback.answer()
         return
     if callback.from_user is None or not _has_pet(callback.from_user.id):
         await callback.message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
         return
-    await _render_magic_placeholder(callback.message, callback.from_user.id)
+    await _edit_magic_sword_message(callback, _magic_placeholder_text(), magic_single_back_inline_keyboard("magic_placeholder:back"))
 
 
 @router.callback_query(F.data == "magic_sword:skills")
 async def magic_sword_skills_callback(callback: CallbackQuery) -> None:
-    await callback.answer()
     if callback.message is None:
+        await callback.answer()
         return
     user_id = callback.from_user.id if callback.from_user is not None else None
-    await _render_skills_menu(callback.message, user_id)
+    user = touch_user_needs(user_id) or get_user(user_id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await _edit_magic_sword_message(callback, "У тебя пока нет енота. Нажми /start, чтобы создать питомца.", None)
+        return
+    await _edit_magic_sword_message(callback, _skills_menu_text(pet), magic_single_back_inline_keyboard("magic_skills:back"))
 
 
 @router.callback_query(F.data == "magic_sword:main")
@@ -719,19 +778,20 @@ async def magic_sword_main_callback(callback: CallbackQuery) -> None:
     await callback.message.answer("Главное меню", reply_markup=main_menu_keyboard())
 
 
-async def _render_magic_and_sword_screen(target: Message, user_id: int | None) -> None:
-    if user_id is not None:
-        touch_user_needs(user_id)
-    await send_optional_screen(
-        target,
-        "magic_and_sword",
+def _magic_and_sword_text() -> str:
+    return (
         "⚔️ Магия и меч\n\n"
         "Енотик разложил у костра свитки, зелья и маленький тренировочный меч.\n\n"
         "Здесь можно подготовиться к путешествиям:\n"
         "прокачать навыки, использовать зелья и позже изучить магию.\n\n"
-        "Выберите действие:",
-        reply_markup=magic_and_sword_inline_keyboard(),
+        "Выберите действие:"
     )
+
+
+async def _render_magic_and_sword_screen(target: Message, user_id: int | None) -> None:
+    if user_id is not None:
+        touch_user_needs(user_id)
+    await send_optional_screen(target, "magic_and_sword", _magic_and_sword_text(), reply_markup=magic_and_sword_inline_keyboard())
 
 
 @router.callback_query(F.data.startswith("magic_train:"))
@@ -745,7 +805,7 @@ async def magic_train_callback(callback: CallbackQuery) -> None:
         return
     action = callback.data.split(":", 1)[1] if callback.data else ""
     if action == "back":
-        await _render_magic_and_sword_screen(callback.message, user_id)
+        await _edit_magic_sword_message(callback, _magic_and_sword_text(), magic_and_sword_inline_keyboard())
         return
     mapping = {
         "strength": ("strength", "Тренировка силы завершена 💪"),
@@ -756,7 +816,7 @@ async def magic_train_callback(callback: CallbackQuery) -> None:
     if train_payload is None:
         return
     result_text = await _train_for_user(user_id, train_payload[0], train_payload[1])
-    await callback.message.answer(result_text, reply_markup=magic_training_inline_keyboard())
+    await _edit_magic_sword_message(callback, result_text, magic_training_inline_keyboard())
 
 
 @router.callback_query(F.data.startswith("magic_potion:"))
@@ -770,14 +830,18 @@ async def magic_potion_callback(callback: CallbackQuery) -> None:
         return
     action = callback.data.split(":", 1)[1] if callback.data else ""
     if action == "back":
-        await _render_magic_and_sword_screen(callback.message, user_id)
+        await _edit_magic_sword_message(callback, _magic_and_sword_text(), magic_and_sword_inline_keyboard())
         return
     item_key = {"small_energy": "energy_potion", "large_energy": "big_energy_potion"}.get(action)
     if not item_key:
         return
     _, result_text = await _perform_care_action_for_user(user_id, item_key)
-    await callback.message.answer(f"✅ {result_text}")
-    await _render_potion_menu(callback.message, user_id)
+    user = touch_user_needs(user_id) or get_user(user_id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await _edit_magic_sword_message(callback, f"✅ {result_text}", magic_potions_inline_keyboard())
+        return
+    await _edit_magic_sword_message(callback, f"✅ {result_text}\n\n{_potion_menu_text(pet)}", magic_potions_inline_keyboard())
 
 
 @router.callback_query(F.data == "magic_placeholder:back")
@@ -786,7 +850,7 @@ async def magic_placeholder_back_callback(callback: CallbackQuery) -> None:
     if callback.message is None:
         return
     user_id = callback.from_user.id if callback.from_user is not None else None
-    await _render_magic_and_sword_screen(callback.message, user_id)
+    await _edit_magic_sword_message(callback, _magic_and_sword_text(), magic_and_sword_inline_keyboard())
 
 
 @router.callback_query(F.data == "magic_skills:back")
@@ -794,8 +858,7 @@ async def magic_skills_back_callback(callback: CallbackQuery) -> None:
     await callback.answer()
     if callback.message is None:
         return
-    user_id = callback.from_user.id if callback.from_user is not None else None
-    await _render_magic_and_sword_screen(callback.message, user_id)
+    await _edit_magic_sword_message(callback, _magic_and_sword_text(), magic_and_sword_inline_keyboard())
 
 
 def _has_pet(user_id: int) -> bool:
