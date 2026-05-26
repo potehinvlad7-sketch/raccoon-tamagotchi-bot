@@ -231,12 +231,20 @@ def _need_bar(value: int, maximum: int = 100, length: int = 10) -> str:
     return f"{'▰' * filled}{'░' * (length - filled)} {clamped}/{safe_maximum}"
 
 
-def _need_block(title: str, emoji: str, current: int, max_value: int, inventory_label: str, inventory_count: int) -> str:
+def _need_block(
+    title: str,
+    emoji: str,
+    current: int,
+    max_value: int,
+    inventory_label: str,
+    inventory_count: int,
+    inventory_emoji: str = "🎒",
+) -> str:
     safe_count = inventory_count if isinstance(inventory_count, int) and inventory_count >= 0 else 0
     return (
         f"{emoji} {title}\n"
         f"{_need_bar(current, max_value)}\n"
-        f"🎒 {inventory_label}: {safe_count} шт."
+        f"{inventory_emoji} {inventory_label}: {safe_count} шт."
     )
 
 
@@ -277,13 +285,13 @@ def _status_text(pet: dict) -> str:
         "",
         phrase,
         "",
-        _need_block("Сытость", "🍽", pet.get("satiety", 80), max_needs["satiety"], "Еда в инвентаре", get_inventory_category_count(pet, "food")),
+        _need_block("Сытость", "🍽", pet.get("satiety", 80), max_needs["satiety"], "Еда в инвентаре", get_inventory_category_count(pet, "food"), "🍱"),
         "",
-        _need_block("Чистота", "🧼", pet.get("cleanliness", 80), max_needs["cleanliness"], "Средства ухода", get_inventory_category_count(pet, "cleanliness")),
+        _need_block("Чистота", "🧼", pet.get("cleanliness", 80), max_needs["cleanliness"], "Средства ухода", get_inventory_category_count(pet, "cleanliness"), "🧼"),
         "",
-        _need_block("Любовь", "💖", pet.get("love", 80), max_needs["love"], "Игрушки", get_inventory_category_count(pet, "love")),
+        _need_block("Любовь", "💖", pet.get("love", 80), max_needs["love"], "Игрушки", get_inventory_category_count(pet, "love"), "🎾"),
         "",
-        _need_block("Энергия", "⚡", pet.get("energy", 80), max_needs["energy"], "Зелья энергии", get_inventory_category_count(pet, "energy")),
+        _need_block("Энергия", "⚡", pet.get("energy", 80), max_needs["energy"], "Зелья энергии", get_inventory_category_count(pet, "energy"), "⚡"),
     ]
     if risk in RISK_MAP:
         lines.extend(["", f"⚠️ Риск побега: {RISK_MAP[risk]}", "Еноту нужно больше любви."])
@@ -311,10 +319,10 @@ def _raccoon_profile_text(pet: dict) -> str:
         f"{exp_line}\n"
         f"😊 Настроение: {mood}\n"
         f"{phrase}\n\n"
-        f"{_need_block('Сытость', '🍽', pet.get('satiety', 80), max_needs['satiety'], 'Еда в инвентаре', get_inventory_category_count(pet, 'food'))}\n\n"
-        f"{_need_block('Чистота', '🧼', pet.get('cleanliness', 80), max_needs['cleanliness'], 'Средства ухода', get_inventory_category_count(pet, 'cleanliness'))}\n\n"
-        f"{_need_block('Любовь', '💖', pet.get('love', 80), max_needs['love'], 'Игрушки', get_inventory_category_count(pet, 'love'))}\n\n"
-        f"{_need_block('Энергия', '⚡', pet.get('energy', 80), max_needs['energy'], 'Зелья энергии', get_inventory_category_count(pet, 'energy'))}\n\n"
+        f"{_need_block('Сытость', '🍽', pet.get('satiety', 80), max_needs['satiety'], 'Еда в инвентаре', get_inventory_category_count(pet, 'food'), '🍱')}\n\n"
+        f"{_need_block('Чистота', '🧼', pet.get('cleanliness', 80), max_needs['cleanliness'], 'Средства ухода', get_inventory_category_count(pet, 'cleanliness'), '🧼')}\n\n"
+        f"{_need_block('Любовь', '💖', pet.get('love', 80), max_needs['love'], 'Игрушки', get_inventory_category_count(pet, 'love'), '🎾')}\n\n"
+        f"{_need_block('Энергия', '⚡', pet.get('energy', 80), max_needs['energy'], 'Зелья энергии', get_inventory_category_count(pet, 'energy'), '⚡')}\n\n"
         "💪 Навыки:\n"
         f"• Сила: {skills.get('strength', 0)}\n"
         f"• Ловкость: {skills.get('agility', 0)}\n"
@@ -1008,6 +1016,21 @@ async def _perform_care_action_for_user(user_id: int, item_key: str) -> tuple[bo
     )
 
 
+
+
+def _get_first_available_item_by_category(pet: dict, category: str) -> str | None:
+    inventory = pet.get("inventory") if isinstance(pet, dict) else None
+    if not isinstance(inventory, dict):
+        return None
+
+    for item_id, item in get_item_catalog().items():
+        if not isinstance(item, dict) or item.get("category") != category:
+            continue
+        count = inventory.get(item_id, 0)
+        if isinstance(count, int) and count > 0:
+            return item_id
+    return None
+
 def _need_label(need: str) -> str:
     return {"satiety": "Сытость", "cleanliness": "Чистота", "love": "Любовь", "energy": "Энергия"}.get(need, "Параметр")
 
@@ -1130,9 +1153,21 @@ async def _handle_pet_care_callback_action(callback: CallbackQuery, action: str)
         await callback.answer()
         return
 
-    action_to_item = {"feed": "food", "clean": "soap", "play": "toy"}
-    if action in action_to_item:
-        _, text = await _perform_care_action_for_user(callback.from_user.id, action_to_item[action])
+    action_to_category = {"feed": "food", "clean": "cleanliness", "play": "love"}
+    if action in action_to_category:
+        selected_item = _get_first_available_item_by_category(pet, action_to_category[action])
+        if not selected_item:
+            missing_messages = {
+                "feed": "🧺 В сумке не нашлось еды. Можно заглянуть в магазин 🛒",
+                "clean": "🧼 Средств ухода нет в инвентаре. Загляни в магазин 🛒",
+                "play": "🎾 Игрушек нет в инвентаре. Можно заглянуть в магазин 🛒",
+            }
+            pet_state = (touch_user_needs(callback.from_user.id) or get_user(callback.from_user.id) or {}).get("pet", pet)
+            await _refresh_pet_care_card(callback, pet_state if isinstance(pet_state, dict) else pet, missing_messages[action])
+            await callback.answer()
+            return
+
+        _, text = await _perform_care_action_for_user(callback.from_user.id, selected_item)
         pet_state = (touch_user_needs(callback.from_user.id) or get_user(callback.from_user.id) or {}).get("pet", pet)
         await _refresh_pet_care_card(callback, pet_state if isinstance(pet_state, dict) else pet, f"✅ {text}")
         await callback.answer()
