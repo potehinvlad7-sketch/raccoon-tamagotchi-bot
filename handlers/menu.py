@@ -50,6 +50,7 @@ from keyboards import (
     cancel_keyboard,
     pet_care_inline_keyboard,
     magic_and_sword_keyboard,
+    magic_and_sword_inline_keyboard,
     training_menu_keyboard,
     TRAVEL_LOCATIONS,
     travel_menu_keyboard,
@@ -579,7 +580,7 @@ async def care_menu(message: Message) -> None:
         "Здесь можно подготовиться к путешествиям:\n"
         "прокачать навыки, использовать зелья и позже изучить магию.\n\n"
         "Выберите действие:",
-        reply_markup=magic_and_sword_keyboard(),
+        reply_markup=magic_and_sword_inline_keyboard(),
     )
 
 
@@ -660,6 +661,59 @@ async def skills_menu(message: Message) -> None:
         "Навыки помогают чаще побеждать в боях и увереннее встречать хранителей пути.",
         reply_markup=magic_and_sword_keyboard(),
     )
+
+
+@router.callback_query(F.data == "magic_sword:train")
+async def magic_sword_train_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    if callback.from_user is None or not _has_pet(callback.from_user.id):
+        await callback.message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        return
+    await training_menu(callback.message)
+
+
+@router.callback_query(F.data == "magic_sword:potions")
+async def magic_sword_potions_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    await potion_menu(callback.message)
+
+
+@router.callback_query(F.data == "magic_sword:magic")
+async def magic_sword_magic_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    if callback.from_user is None or not _has_pet(callback.from_user.id):
+        await callback.message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        return
+    await magic_placeholder(callback.message)
+
+
+@router.callback_query(F.data == "magic_sword:skills")
+async def magic_sword_skills_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    await skills_menu(callback.message)
+
+
+@router.callback_query(F.data == "magic_sword:main")
+async def magic_sword_main_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+    if callback.message is None:
+        return
+    if callback.from_user is not None:
+        touch_user_needs(callback.from_user.id)
+    await callback.message.answer("Главное меню", reply_markup=main_menu_keyboard())
+
+
+def _has_pet(user_id: int) -> bool:
+    user = get_user(user_id)
+    return isinstance(user, dict) and isinstance(user.get("pet"), dict)
 
 
 async def _train(message: Message, skill: str, title: str) -> None:

@@ -224,6 +224,22 @@ def magic_and_sword_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def magic_and_sword_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=BTN_TRAINING, callback_data="magic_sword:train"),
+                InlineKeyboardButton(text=BTN_POTIONS, callback_data="magic_sword:potions"),
+            ],
+            [
+                InlineKeyboardButton(text=BTN_MAGIC, callback_data="magic_sword:magic"),
+                InlineKeyboardButton(text=BTN_SKILLS, callback_data="magic_sword:skills"),
+            ],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data="magic_sword:main")],
+        ]
+    )
+
+
 def build_shop_keyboard() -> ReplyKeyboardMarkup:
     categories = list(get_shop_categories().values())
     rows: list[list[KeyboardButton]] = []
