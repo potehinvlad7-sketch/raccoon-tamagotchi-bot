@@ -855,6 +855,25 @@ def consume_inventory_item(pet: dict[str, Any], item: str) -> bool:
 def get_item_catalog() -> dict[str, dict[str, Any]]:
     return {key: value.copy() for key, value in ITEM_CATALOG.items()}
 
+def get_inventory_category_count(pet: dict[str, Any], category: str) -> int:
+    if not isinstance(pet, dict) or not isinstance(category, str):
+        return 0
+
+    inventory = pet.get("inventory")
+    if not isinstance(inventory, dict) or not inventory:
+        return 0
+
+    total = 0
+    for item_id, raw_count in inventory.items():
+        if not isinstance(raw_count, int) or raw_count <= 0:
+            continue
+        item_meta = ITEM_CATALOG.get(item_id)
+        if not isinstance(item_meta, dict):
+            continue
+        if item_meta.get("category") == category:
+            total += raw_count
+    return total
+
 
 def get_shop_items() -> dict[str, int]:
     return {key: item["price"] for key, item in SHOP_ITEMS.items()}
