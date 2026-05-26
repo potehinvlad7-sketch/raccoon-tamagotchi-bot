@@ -240,6 +240,35 @@ def magic_and_sword_inline_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def magic_training_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="💪 Сила", callback_data="magic_train:strength"),
+                InlineKeyboardButton(text="🐾 Ловкость", callback_data="magic_train:agility"),
+            ],
+            [InlineKeyboardButton(text="👁 Инстинкт", callback_data="magic_train:instinct")],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data="magic_train:back")],
+        ]
+    )
+
+
+def magic_potions_inline_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⚡ Малое зелье", callback_data="magic_potion:small_energy"),
+                InlineKeyboardButton(text="🔋 Большое зелье", callback_data="magic_potion:large_energy"),
+            ],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data="magic_potion:back")],
+        ]
+    )
+
+
+def magic_single_back_inline_keyboard(callback_data: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=BTN_BACK, callback_data=callback_data)]])
+
+
 def build_shop_keyboard() -> ReplyKeyboardMarkup:
     categories = list(get_shop_categories().values())
     rows: list[list[KeyboardButton]] = []
