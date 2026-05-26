@@ -7,6 +7,8 @@ from typing import Any
 
 DATA_DIR = Path("data")
 USERS_FILE = DATA_DIR / "users.json"
+NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
+MAX_NOTIFICATION_LOG_ENTRIES = 400
 
 DEFAULT_NEEDS = {
     "satiety": 80,
@@ -385,25 +387,142 @@ SHOP_ITEMS = {
 
 
 def update_pet_mood(pet: dict[str, Any]) -> str:
-    max_needs = get_pet_max_needs(pet)
-    satiety = int(pet.get("satiety", DEFAULT_NEEDS["satiety"]))
-    cleanliness = int(pet.get("cleanliness", DEFAULT_NEEDS["cleanliness"]))
-    love = int(pet.get("love", DEFAULT_NEEDS["love"]))
-    energy = int(pet.get("energy", DEFAULT_NEEDS["energy"]))
+    percentages = _need_percentages(pet)
+    critical = [need for need, ratio in percentages.items() if ratio <= 0.15]
+    low = [need for need, ratio in percentages.items() if ratio <= 0.30]
+    good_count = sum(1 for ratio in percentages.values() if ratio > 0.55)
 
-    if satiety < max_needs["satiety"] * 0.2 or cleanliness < max_needs["cleanliness"] * 0.2 or love < max_needs["love"] * 0.2:
-        mood = "distressed"
-    elif satiety < max_needs["satiety"] * 0.4 or cleanliness < max_needs["cleanliness"] * 0.4 or love < max_needs["love"] * 0.4 or energy < max_needs["energy"] * 0.2:
-        mood = "tired"
-    elif satiety >= max_needs["satiety"] * 0.8 and cleanliness >= max_needs["cleanliness"] * 0.8 and love >= max_needs["love"] * 0.8 and energy >= max_needs["energy"] * 0.6:
-        mood = "happy"
+    if len(critical) >= 2:
+        mood = "critical"
+    elif len(low) >= 2:
+        mood = "anxious"
+    elif critical or low:
+        primary_need = next((need for need in ("satiety", "cleanliness", "love", "energy") if need in critical or need in low), None)
+        mood = {"satiety": "hungry", "cleanliness": "dirty", "love": "sad", "energy": "tired"}.get(primary_need, "calm")
+    elif good_count == 4:
+        mood = "excellent"
+    elif good_count >= 3:
+        mood = "content"
     else:
-        mood = "normal"
+        mood = "calm"
 
     pet["mood"] = mood
     return mood
 
 
+
+
+def _need_percentages(pet: dict[str, Any]) -> dict[str, float]:
+    max_needs = get_pet_max_needs(pet)
+    percentages: dict[str, float] = {}
+    for need in DEFAULT_NEEDS:
+        max_value = max(1, int(max_needs.get(need, 100)))
+        current = int(pet.get(need, DEFAULT_NEEDS[need]))
+        percentages[need] = max(0.0, min(1.0, current / max_value))
+    return percentages
+
+
+def get_need_alert_info(pet: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(pet, dict):
+        return None
+    percentages = _need_percentages(pet)
+    critical = [need for need, ratio in percentages.items() if ratio <= 0.15]
+    low = [need for need, ratio in percentages.items() if ratio <= 0.30]
+
+    if len(critical) >= 1 or len(low) >= 2:
+        reason = 'critical_needs' if critical else 'multiple_low_needs'
+        if critical == ['energy'] or (not critical and low and all(n == 'energy' for n in low)):
+            reason = 'low_energy'
+        max_needs = get_pet_max_needs(pet)
+        affected = critical if critical else low
+        needs = {need: {'current': int(pet.get(need, 0)), 'max': int(max_needs.get(need, 100))} for need in affected}
+        return {'reason': reason, 'needs': needs, 'critical': critical, 'low': low}
+    return None
+
+
+def should_send_low_needs_notification(pet: dict[str, Any], now: datetime | None = None) -> tuple[bool, dict[str, Any] | None]:
+    if not isinstance(pet, dict):
+        return False, None
+    now = now or utc_now()
+    last_notified = parse_datetime(pet.get('last_low_needs_notification_at'))
+    if pet.get('last_low_needs_notification_at') is not None and last_notified is None:
+        pet['last_low_needs_notification_at'] = None
+    info = get_need_alert_info(pet)
+    if info is None:
+        return False, None
+    if last_notified is not None and now - last_notified < timedelta(hours=24):
+        return False, info
+    return True, info
+
+
+def mark_low_needs_notification_sent(user_id: int, now: datetime | None = None) -> bool:
+    users = load_users()
+    user = users.get(str(user_id))
+    if not isinstance(user, dict):
+        return False
+    user, _ = ensure_pet_defaults(user)
+    pet = user.get('pet')
+    if not isinstance(pet, dict):
+        return False
+    pet['last_low_needs_notification_at'] = (now or utc_now()).isoformat()
+    users[str(user_id)] = user
+    save_users(users)
+    return True
+
+
+def append_notification_log(entry: dict[str, Any]) -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if NOTIFICATIONS_FILE.exists():
+            raw = NOTIFICATIONS_FILE.read_text(encoding='utf-8').strip()
+            payload = json.loads(raw) if raw else []
+            if not isinstance(payload, list):
+                payload = []
+        else:
+            payload = []
+        payload.append(entry)
+        payload = payload[-MAX_NOTIFICATION_LOG_ENTRIES:]
+        NOTIFICATIONS_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+    except Exception:
+        return
+
+
+def get_notification_log(limit: int = 20) -> list[dict[str, Any]]:
+    try:
+        if not NOTIFICATIONS_FILE.exists():
+            return []
+        raw = NOTIFICATIONS_FILE.read_text(encoding='utf-8').strip()
+        data = json.loads(raw) if raw else []
+        if not isinstance(data, list):
+            return []
+        rows = [item for item in data if isinstance(item, dict)]
+        return rows[-max(1, limit):]
+    except Exception:
+        return []
+
+
+def get_notification_log_stats() -> dict[str, Any]:
+    rows = get_notification_log(limit=MAX_NOTIFICATION_LOG_ENTRIES)
+    now = utc_now()
+    sent = sum(1 for row in rows if row.get('status') == 'sent')
+    failed = sum(1 for row in rows if row.get('status') == 'failed')
+    skipped = sum(1 for row in rows if row.get('status') == 'skipped')
+    last_24h = 0
+    last_sent_at = None
+    for row in rows:
+        ts = parse_datetime(row.get('sent_at'))
+        if ts and now - ts <= timedelta(hours=24):
+            last_24h += 1
+        if row.get('status') == 'sent' and ts and (last_sent_at is None or ts > last_sent_at):
+            last_sent_at = ts
+    return {
+        'total': len(rows),
+        'sent': sent,
+        'failed': failed,
+        'skipped': skipped,
+        'last_24h': last_24h,
+        'last_sent_at': last_sent_at.isoformat() if last_sent_at else None,
+    }
 def get_runaway_risk(pet: dict[str, Any]) -> str:
     love = int(pet.get("love", DEFAULT_NEEDS["love"]))
     love_max = get_pet_max_needs(pet)["love"]
@@ -671,7 +790,13 @@ def ensure_pet_defaults(user_data: dict[str, Any]) -> tuple[dict[str, Any], bool
         pet["last_sleep_at"] = None
         changed = True
     if not isinstance(pet.get("mood"), str):
-        pet["mood"] = "normal"
+        pet["mood"] = "calm"
+        changed = True
+    if pet.get("last_low_needs_notification_at") is not None and parse_datetime(pet.get("last_low_needs_notification_at")) is None:
+        pet["last_low_needs_notification_at"] = None
+        changed = True
+    if "last_low_needs_notification_at" not in pet:
+        pet["last_low_needs_notification_at"] = None
         changed = True
 
     for need in DEFAULT_NEEDS:
