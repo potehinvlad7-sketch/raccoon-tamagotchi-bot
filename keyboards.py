@@ -3,8 +3,11 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 from storage import get_shop_categories
 
 BTN_STATUS = "📊 Статус"
-BTN_CARE = "🧼 Уход"
+BTN_CARE = "⚔️ Магия и меч"
 BTN_TRAINING = "💪 Тренировки"
+BTN_MAGIC = "✨ Магия"
+BTN_POTIONS = "🧪 Зелья"
+BTN_SKILLS = "📊 Навыки"
 BTN_TRAVEL = "🌲 Путешествие"
 BTN_SHOP = "🛒 Магазин"
 BTN_INVENTORY = "🎒 Инвентарь"
@@ -204,6 +207,17 @@ def training_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=BTN_TRAIN_STRENGTH), KeyboardButton(text=BTN_TRAIN_AGILITY)],
             [KeyboardButton(text=BTN_TRAIN_INSTINCT)],
+            [KeyboardButton(text=BTN_BACK)],
+        ],
+        resize_keyboard=True,
+    )
+
+
+def magic_and_sword_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=BTN_TRAINING), KeyboardButton(text=BTN_POTIONS)],
+            [KeyboardButton(text=BTN_MAGIC), KeyboardButton(text=BTN_SKILLS)],
             [KeyboardButton(text=BTN_BACK)],
         ],
         resize_keyboard=True,

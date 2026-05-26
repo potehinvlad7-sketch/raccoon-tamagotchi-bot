@@ -5,7 +5,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, KeyboardButton, Message, ReplyKeyboardMarkup
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 
 from keyboards import (
@@ -30,10 +30,13 @@ from keyboards import (
     BTN_CANCEL,
     BTN_CONTACT_ADMIN,
     BTN_LETTER_TO_RACCOON,
+    BTN_MAGIC,
     BTN_MY_RACCOON,
+    BTN_POTIONS,
     BTN_SHOP,
     BTN_SHOP_BACK,
     BTN_STATUS,
+    BTN_SKILLS,
     BTN_TRAIN_AGILITY,
     BTN_TRAIN_INSTINCT,
     BTN_TRAIN_STRENGTH,
@@ -46,6 +49,7 @@ from keyboards import (
     build_shop_item_keyboard,
     cancel_keyboard,
     pet_care_inline_keyboard,
+    magic_and_sword_keyboard,
     training_menu_keyboard,
     TRAVEL_LOCATIONS,
     travel_menu_keyboard,
@@ -567,7 +571,16 @@ async def contact_admin_non_text(message: Message) -> None:
 async def care_menu(message: Message) -> None:
     if message.from_user is not None:
         touch_user_needs(message.from_user.id)
-    await message.answer("Выбери действие ухода:", reply_markup=care_menu_keyboard())
+    await send_optional_screen(
+        message,
+        "magic_and_sword",
+        "⚔️ Магия и меч\n\n"
+        "Енотик разложил у костра свитки, зелья и маленький тренировочный меч.\n\n"
+        "Здесь можно подготовиться к путешествиям:\n"
+        "прокачать навыки, использовать зелья и позже изучить магию.\n\n"
+        "Выберите действие:",
+        reply_markup=magic_and_sword_keyboard(),
+    )
 
 
 @router.message(F.text == BTN_TRAINING)
@@ -581,6 +594,71 @@ async def training_menu(message: Message) -> None:
         "• Ловкость — 📜 Свиток ловкости\n"
         "• Инстинкт — 📜 Свиток инстинкта",
         reply_markup=training_menu_keyboard(),
+    )
+
+
+@router.message(F.text == BTN_POTIONS)
+async def potion_menu(message: Message) -> None:
+    if message.from_user is None:
+        return
+    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        return
+    inventory = pet.get("inventory", {}) if isinstance(pet.get("inventory"), dict) else {}
+    await send_optional_screen(
+        message,
+        "potions",
+        "🧪 Зелья\n\n"
+        "Доступные зелья в инвентаре:\n"
+        f"• ⚡ Малое зелье: {inventory.get('energy_potion', 0)}\n"
+        f"• 🔋 Большое зелье: {inventory.get('big_energy_potion', 0)}\n\n"
+        "Чтобы использовать зелье, выберите его кнопкой ниже.",
+        reply_markup=care_menu_keyboard(),
+    )
+
+
+@router.message(F.text == BTN_MAGIC)
+async def magic_placeholder(message: Message) -> None:
+    await send_optional_screen(
+        message,
+        "magic_placeholder",
+        "✨ Магия\n\n"
+        "Магические свитки пока покрыты енотовыми каракулями.\n"
+        "Этот раздел откроется позже.",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="🔙 Назад")]],
+            resize_keyboard=True,
+        ),
+    )
+
+
+@router.message(F.text == "🔙 Назад")
+async def magic_back(message: Message) -> None:
+    if message.from_user is not None:
+        touch_user_needs(message.from_user.id)
+    await care_menu(message)
+
+
+@router.message(F.text == BTN_SKILLS)
+async def skills_menu(message: Message) -> None:
+    if message.from_user is None:
+        return
+    user = touch_user_needs(message.from_user.id) or get_user(message.from_user.id)
+    pet = (user or {}).get("pet") if isinstance(user, dict) else None
+    if not isinstance(pet, dict):
+        await message.answer("У тебя пока нет енота. Нажми /start, чтобы создать питомца.")
+        return
+    await send_optional_screen(
+        message,
+        "skills",
+        "📊 Навыки\n\n"
+        f"💪 Сила: {pet.get('strength', 1)}\n"
+        f"🤸 Ловкость: {pet.get('agility', 1)}\n"
+        f"🧠 Инстинкт: {pet.get('instinct', 1)}\n\n"
+        "Навыки помогают чаще побеждать в боях и увереннее встречать хранителей пути.",
+        reply_markup=magic_and_sword_keyboard(),
     )
 
 
