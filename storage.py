@@ -455,6 +455,88 @@ def get_pet_max_needs(pet: dict[str, Any]) -> dict[str, int]:
     return {"satiety": max_value, "cleanliness": max_value, "love": max_value, "energy": max_value}
 
 
+def get_pet_status_phrase(pet: dict[str, Any]) -> str:
+    level = pet.get("level", 1) if isinstance(pet, dict) else 1
+    safe_level = level if isinstance(level, int) and level > 0 else 1
+    max_need = get_max_need_value(safe_level)
+
+    def _ratio(need_name: str) -> float:
+        raw_value = pet.get(need_name, DEFAULT_NEEDS.get(need_name, 80)) if isinstance(pet, dict) else 0
+        safe_value = raw_value if isinstance(raw_value, int) else 0
+        clamped = max(0, min(safe_value, max_need))
+        return clamped / max_need
+
+    hunger_phrases = [
+        "💬 «В животике уже урчит... Я бы съела что-нибудь вкусное.»",
+        "💬 «Нос чует перекус... Кажется, пора подкрепиться.»",
+        "💬 «Я мечтаю о чём-то хрустящем и очень аппетитном.»",
+        "💬 «Лапки ещё бодрые, но без еды долго не продержусь.»",
+        "💬 «Если найдётся угощение, я сразу стану веселее.»",
+    ]
+    clean_phrases = [
+        "💬 «Кажется, я принесла с прогулки половину леса на лапках...»",
+        "💬 «Шёрстка спуталась после приключений. Нужна ванна.»",
+        "💬 «Пахну как тропинка после дождя... Поможешь умыться?»",
+        "💬 «Хочу снова быть пушистой и аккуратной.»",
+        "💬 «Немного мыла — и я засияю как новенькая!»",
+    ]
+    love_phrases = [
+        "💬 «Ты ведь ещё рядом?.. Мне стало немного одиноко.»",
+        "💬 «Я скучаю по нашим играм. Давай побудем вместе?»",
+        "💬 «Обними меня взглядом, и сердце снова согреется.»",
+        "💬 «Мне так нужна твоя забота прямо сейчас.»",
+        "💬 «С тобой рядом даже тёмный лес кажется добрым.»",
+    ]
+    energy_phrases = [
+        "💬 «Глазки слипаются... Может, мне немного поспать?»",
+        "💬 «Лапки устали после дороги. Нужен короткий сон.»",
+        "💬 «Я зеваю чаще, чем машу хвостиком...»",
+        "💬 «Ещё шаг — и я усну прямо на месте.»",
+        "💬 «Немного отдыха, и я снова готова в путь.»",
+    ]
+    good_phrases = [
+        "💬 «Я в отличной форме и готова к новым делам!»",
+        "💬 «Сегодня такой хороший день, давай проведём его вместе.»",
+        "💬 «Шёрстка мягкая, хвостик бодрый — всё просто чудесно.»",
+        "💬 «Мне спокойно и уютно рядом с тобой.»",
+        "💬 «Я счастлива, когда мы идём по тропе вместе.»",
+        "💬 «Давай искать маленькие приключения и большие улыбки.»",
+        "💬 «Я уже размяла лапки и жду твоей команды.»",
+        "💬 «Смотри, как блестят глаза — это к удачному дню.»",
+        "💬 «Я в настроении играть, гулять и обниматься!»",
+        "💬 «Когда ты рядом, мир кажется особенно тёплым.»",
+    ]
+    adventure_phrases = [
+        "💬 «Я готова к приключениям. Только скажи, куда идём.»",
+        "💬 «Опыт зовёт меня дальше — в новые земли и тайны.»",
+        "💬 «С каждым уровнем тропы становятся всё интереснее.»",
+        "💬 «Я слышу зов дороги. Пора на поиски легенд!»",
+        "💬 «Рюкзак собран, хвост трубой — в путь за открытиями!»",
+    ]
+
+    needs_order = ("satiety", "cleanliness", "love", "energy")
+    need_to_phrases = {
+        "satiety": hunger_phrases,
+        "cleanliness": clean_phrases,
+        "love": love_phrases,
+        "energy": energy_phrases,
+    }
+    ratios = {need: _ratio(need) for need in needs_order}
+    lowest_need = min(needs_order, key=lambda key: ratios[key])
+    lowest_ratio = ratios[lowest_need]
+
+    if lowest_ratio <= 0.50:
+        phrases = need_to_phrases[lowest_need]
+    elif safe_level >= 20:
+        phrases = adventure_phrases + good_phrases
+    else:
+        phrases = good_phrases
+
+    seed = f"{pet.get('name', '') if isinstance(pet, dict) else ''}|{safe_level}|{datetime.now(UTC).strftime('%Y-%m-%d-%H')}"
+    phrase_index = sum(ord(char) for char in seed) % len(phrases)
+    return phrases[phrase_index]
+
+
 def clamp_need_by_level(pet: dict[str, Any], need: str, value: int) -> int:
     need_max = get_pet_max_needs(pet).get(need, 100)
     return max(0, min(need_max, value))
