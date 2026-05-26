@@ -1,5 +1,7 @@
 from aiogram import F, Router
-from aiogram.exceptions import TelegramBadRequest
+from datetime import UTC, datetime
+
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -21,13 +23,17 @@ from storage import (
     exp_to_next_level,
     LEGEND_LEVEL,
     get_all_users,
+    append_notification_log,
     get_pet_max_needs,
     get_storage_stats,
     get_user_by_id,
+    recalculate_needs,
     get_notification_log,
     get_notification_log_stats,
+    mark_low_needs_notification_sent,
     refresh_user_metadata,
     refresh_user_metadata_from_chat,
+    should_send_low_needs_notification,
 )
 
 router = Router()
@@ -241,6 +247,25 @@ def _format_notifications_admin_text() -> str:
         return header + "нет записей"
     lines=[_format_notification_event(i, e) for i,e in enumerate(reversed(events),1)]
     return header + "\n\n".join(lines)
+
+
+def _build_low_needs_notification_text(alert: dict, pet: dict) -> str:
+    needs = alert.get("needs", {}) if isinstance(alert, dict) else {}
+    reason = str(alert.get("reason", ""))
+    if reason == "low_energy" and list(needs.keys()) == ["energy"]:
+        return "⚡ Енотик устал, но энергия постепенно восстановится сама. Можно также использовать зелья энергии."
+
+    labels = {"satiety": "🍽 Сытость", "cleanliness": "🧼 Чистота", "love": "💖 Любовь", "energy": "⚡ Энергия"}
+    lines = ["🔔 Енотик тихонько тянет тебя за рукав.", "", "У него сейчас просели параметры:"]
+    for key, payload in needs.items():
+        if isinstance(payload, dict):
+            lines.append(f"{labels.get(key, key)}: {payload.get('current', 0)}/{payload.get('max', 0)}")
+    lines.extend([
+        "",
+        "Энергия сама восстановится в течение дня.",
+        "А сытость, чистоту и любовь можно поднять через карточку статуса или инвентарь.",
+    ])
+    return "\n".join(lines)
 def _format_user_line(user_id: int, user: dict) -> str:
     username_raw = user.get("username") if isinstance(user, dict) else None
     username = f"@{username_raw}" if isinstance(username_raw, str) and username_raw else "без username"
@@ -417,6 +442,7 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
 
     data = callback.data or ""
     parts = data.split(":")
+    await callback.answer()
 
     try:
         if data == "admin:panel":
@@ -483,7 +509,93 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
                 BROADCAST_DRAFTS.pop(callback.from_user.id, None)
                 await state.clear()
         elif data == "admin:notifications":
-            await safe_admin_edit_or_answer(callback, _format_notifications_admin_text(), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")]]))
+            await safe_admin_edit_or_answer(
+                callback,
+                _format_notifications_admin_text(),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔎 Проверить питомцев", callback_data="admin:check_pets_notifications")],
+                    [InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")],
+                ]),
+            )
+        elif data == "admin:check_pets_notifications":
+            users = get_all_users()
+            total_users = len(users)
+            users_with_pet = 0
+            required_attention = 0
+            sent = 0
+            skipped = 0
+            failed = 0
+            affected_rows: list[str] = []
+
+            for user_id, user in users:
+                if not isinstance(user, dict):
+                    continue
+                pet = user.get("pet")
+                if not isinstance(pet, dict):
+                    continue
+                users_with_pet += 1
+                recalculate_needs(user)
+                pet = user.get("pet")
+                if not isinstance(pet, dict):
+                    continue
+                should_send, alert = should_send_low_needs_notification(pet)
+                if not alert:
+                    continue
+                required_attention += 1
+
+                username = user.get("username")
+                first_name = user.get("first_name")
+                pet_name = pet.get("name") or "без имени"
+                need_names = {"satiety": "сытость", "cleanliness": "чистота", "love": "любовь", "energy": "энергия"}
+                reason_list = ", ".join(need_names.get(k, k) for k in alert.get("needs", {}).keys()) or "низкие параметры"
+                base_log = {
+                    "sent_at": datetime.now(UTC).isoformat(),
+                    "user_id": user_id,
+                    "username": username,
+                    "first_name": first_name,
+                    "pet_name": pet_name,
+                    "reason": alert.get("reason"),
+                    "needs": alert.get("needs", {}),
+                    "source": "admin_manual_check",
+                }
+
+                username_part = f" @{username}" if isinstance(username, str) and username else ""
+                first_name_part = f" {first_name}" if isinstance(first_name, str) and first_name else ""
+
+                if not should_send:
+                    skipped += 1
+                    append_notification_log({**base_log, "status": "skipped"})
+                    affected_rows.append(f"• {user_id}{username_part}{first_name_part} — {pet_name}: {reason_list} → skipped")
+                    continue
+
+                try:
+                    await callback.bot.send_message(user_id, _build_low_needs_notification_text(alert, pet))
+                    mark_low_needs_notification_sent(user_id)
+                    append_notification_log({**base_log, "status": "sent"})
+                    sent += 1
+                    affected_rows.append(f"• {user_id}{username_part}{first_name_part} — {pet_name}: {reason_list} → sent")
+                except (TelegramForbiddenError, TelegramBadRequest, TelegramAPIError) as exc:
+                    failed += 1
+                    append_notification_log({**base_log, "status": "failed", "error": exc.__class__.__name__})
+                    affected_rows.append(f"• {user_id}{username_part}{first_name_part} — {pet_name}: {reason_list} → failed ({exc.__class__.__name__})")
+
+            report_lines = [
+                "🔎 Проверка питомцев завершена",
+                "",
+                f"Всего пользователей: {total_users}",
+                f"С питомцами: {users_with_pet}",
+                f"Требовали внимания: {required_attention}",
+                f"Уведомления отправлены: {sent}",
+                f"Пропущено из-за cooldown: {skipped}",
+                f"Ошибок отправки: {failed}",
+            ]
+            if affected_rows:
+                report_lines.append("")
+                report_lines.append("Последние затронутые записи:")
+                report_lines.extend(affected_rows[:10])
+                if len(affected_rows) > 10:
+                    report_lines.append(f"…и ещё {len(affected_rows) - 10} записей.")
+            await safe_admin_edit_or_answer(callback, "\n".join(report_lines), reply_markup=_admin_panel_keyboard())
         elif data == "admin:stats":
             await safe_admin_edit_or_answer(callback, _format_stats(), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data="admin:panel")]]))
         elif data == "admin:backup":
@@ -628,7 +740,6 @@ async def admin_callbacks(callback: CallbackQuery, state: FSMContext) -> None:
     except (ValueError, IndexError):
         await callback.message.answer("Некорректная команда админ-панели.")
 
-    await callback.answer()
 
 
 @router.message(AdminBroadcastState.waiting_for_content, F.text == "❌ Отмена")
