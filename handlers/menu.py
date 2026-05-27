@@ -54,7 +54,6 @@ from keyboards import (
     pet_care_inline_keyboard,
     magic_and_sword_inline_keyboard,
     training_menu_keyboard,
-    TRAVEL_LOCATIONS,
     travel_menu_keyboard,
 )
 from config import ADMIN_IDS
@@ -77,6 +76,7 @@ from storage import (
     get_travel_event,
     get_travel_locations,
     perform_travel,
+    TRAVEL_LOCATIONS,
     resolve_battle_attack,
     resolve_battle_run,
     refresh_user_metadata,
@@ -104,7 +104,15 @@ TRAVEL_EVENT_MAP = {
     "raccoon got muddy": "енот испачкался в мокрой земле 🐾",
 }
 
-TRAVEL_BUTTON_TO_ID = {value["button"]: key for key, value in TRAVEL_LOCATIONS.items()}
+def _build_travel_button_to_id() -> dict[str, str]:
+    travel_locations = get_travel_locations()
+    button_to_id = {value.get("button", ""): key for key, value in travel_locations.items() if value.get("button")}
+    if set(button_to_id.values()) != set(travel_locations.keys()):
+        raise ValueError("Travel catalog/button mapping mismatch")
+    return button_to_id
+
+
+TRAVEL_BUTTON_TO_ID = _build_travel_button_to_id()
 GROUP_FLAVOR_LINES = [
     "🦝 {name} гордо показывает найденный листочек.",
     "🌿 {name} выглядит немного уставшим после путешествий.",
