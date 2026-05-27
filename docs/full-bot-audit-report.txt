@@ -1,0 +1,331 @@
+1. ОБЩАЯ АРХИТЕКТУРА БОТА
+Проект: Telegram RPG Tamagotchi с енотом-питомцем.
+Точка входа: main.py -> asyncio.run(main()) -> Bot + Dispatcher -> register_handlers(dp) -> polling.
+Aiogram: используется aiogram v3-подход с Router, фильтрами F, FSM (создание питомца, рассылка админа), CallbackQuery/Message split.
+Routers:
+- handlers/start.py: onboarding и создание питомца.
+- handlers/menu.py: основной gameplay (статус, уход, инвентарь, магазин, путешествия, бой, магия/меч, помощь, письмо админу, уведомления low-needs).
+- handlers/admin.py: админ-панель, пользователи, правки, backup, рассылка, контроль уведомлений.
+Proxy: main.py читает PROXY_URL из config.py, при наличии создает AiohttpSession(proxy=PROXY_URL).
+ENV: config.py load_dotenv(); BOT_TOKEN, PROXY_URL, ADMIN_IDS; BOT_TOKEN обязателен (RuntimeError, если пустой).
+Хранилище: storage.py, JSON-файлы data/users.json и data/notifications.json. Без БД.
+Runtime flow:
+- Пользователь пишет /start -> либо возврат в меню, либо FSM создания питомца.
+- Любая игровая ветка берет user/pet через storage, вызывает touch_user_needs/recalculate.
+- Потребности изменяются событиями ухода/путешествия/боя/тренировок.
+- Большинство UI-веток в handlers/menu.py.
+Где живет логика:
+- Сильный монолит storage.py: доменная модель, формулы, travel/battle/economy/inventory/уведомления.
+- Сильный монолит handlers/menu.py: presentation + orchestration + часть fallback-логики.
+
+2. ПОЛНАЯ КАРТА ФАЙЛОВ
+main.py
+- Назначение: bootstrap бота, запуск polling.
+- Ключи: BOT_TOKEN/PROXY_URL.
+- Риски: минимум; корректный простой entrypoint.
+- Монолитность: нет.
+config.py
+- Назначение: env-конфиг и парсинг ADMIN_IDS.
+- Ключи: BOT_TOKEN, PROXY_URL, ADMIN_IDS, is_admin().
+- Риски: тихий пропуск невалидных admin id (дизайн-решение), может скрыть опечатки.
+- Монолитность: нет.
+storage.py
+- Назначение: модель данных и практически вся игровая механика.
+- Ключи: DEFAULT_NEEDS, DEFAULT_INVENTORY, DEFAULT_SKILLS, TRAVEL_LOCATIONS (100 локаций), TRAVEL_EVENTS, ENEMY_CATALOG, LOCATION_ENEMIES, ITEM_CATALOG, SHOP_*.
+- Ключевые функции: create_pet, touch_user_needs/recalculate_needs, update_pet_mood, get_pet_status_phrase, update_pet_need, train_skill, perform_travel, resolve_battle_attack, resolve_battle_run, shop_purchase, notification log API, admin mutate API.
+- Риски: очень большой файл, высокая связность, риск регрессий и drift в данных.
+- Монолитность: критически высокая.
+keyboards.py
+- Назначение: все Reply/Inline клавиатуры и кнопочные константы.
+- Риски: дублирование TRAVEL_LOCATIONS (вторая карта, урезанная) относительно storage.py.
+- Монолитность: средняя.
+handlers/__init__.py
+- Назначение: регистрация роутеров.
+- Порядок: start -> admin -> menu.
+handlers/start.py
+- Назначение: /start и FSM создания питомца.
+- Риски: низкие.
+handlers/menu.py
+- Назначение: почти весь пользовательский UX + callbacks + бои/магазин/travel + уведомления.
+- Ключи: локализации настроения/рисков, map кнопок/категорий, текстовые генераторы экранов.
+- Риски: очень высокая длина и плотность; mix Reply+Inline UX.
+- Монолитность: критически высокая.
+handlers/admin.py
+- Назначение: админка (статистика, users paging, edit pet, инвентарь/монеты, backup, рассылка, уведомления).
+- Риски: много callback-веток в одной функции admin_callbacks, частично broad except.
+handlers/images.py
+- Назначение: send_optional_screen (картинка + caption, fallback на text).
+- Риски: silent except TelegramAPIError -> pass (теряется причина).
+README.md
+- Назначение: описание проекта, запуск, stages, high-level features.
+- Риск: частично не полностью синхронен с текущим кодом (например battle/travel глубже, чем кратко описано).
+requirements.txt
+- aiogram, python-dotenv, aiohttp-socks.
+existing docs
+- docs/audit-current-state.md: предыдущий аудит, подтверждает проблемы монолитности/дублирования.
+
+3. ПОЛНАЯ КАРТА ПОЛЬЗОВАТЕЛЬСКИХ ЭКРАНОВ
+/start: стартовый onboarding. Если pet есть -> главное меню; иначе выбор пола.
+Создание питомца: ReplyKeyboard (♂️/♀️), затем ввод имени текстом.
+Главное меню: ReplyKeyboard, кнопки статус/магия и меч/тренировки/путешествие/магазин/инвентарь/мой енот/помощь/письмо.
+Статус: screen key status/pet-care (через send_optional_screen + inline care keyboard). Показывает фразу енота, шкалы, риск побега.
+Мой енот/профиль: детальная карточка с уровнем/опытом/навыками/потребностями.
+Инвентарь: развернутые категории + монеты + свитки.
+Магазин: category ReplyKeyboard -> категория -> Inline buy buttons.
+Путешествие: ReplyKeyboard с окном из 3 доступных локаций (по уровню).
+Бой: ReplyKeyboard (Атаковать/Сбежать).
+Магия и меч: отправка/редактирование inline-экрана с submenu training/potions/magic placeholder/skills.
+Тренировки: inline magic_train:* + legacy reply training buttons тоже присутствуют.
+Зелья: inline magic_potion:*.
+Magic placeholder: "Этот раздел откроется позже." + back callback.
+Навыки: отдельный inline-экран.
+Письмо: FSM-like state ожидания текста, пересылка админу(ам).
+Помощь: текстовый экран подсказок.
+No-pet поведение: почти везде guard "У тебя пока нет енота. Нажми /start...".
+
+4. ПОЛНЫЙ РЕЕСТР КНОПОК (СЖАТО)
+Reply: 📊 Статус, ⚔️ Магия и меч, 💪 Тренировки, 🌲 Путешествие, 🛒 Магазин, 🎒 Инвентарь, 🦝 Мой енот, ❔ Помощь, 💌 Дать енотику письмо, ⬅️ В главное меню, магазинные категории, travel location buttons, battle buttons, legacy care/training buttons.
+Inline: pet_care:feed/clean/play/sleep/menu; magic_sword:*, magic_train:*, magic_potion:*, magic_placeholder:back, magic_skills:back, shop_buy:*, shop_back:*, admin:*.
+Файлы определения: keyboards.py и частично handlers/admin.py (админские inline keyboards).
+
+5. ПОЛНЫЙ РЕЕСТР CALLBACK_DATA
+Namespaces найдены:
+- pet_care:* (feed, clean, play, sleep, menu)
+- magic_sword:* (train, potions, magic, skills, main)
+- magic_train:* (strength, agility, instinct, back)
+- magic_potion:* (small_energy, large_energy, back)
+- magic_placeholder:back
+- magic_skills:back
+- shop_back:category
+- shop_buy:item_id
+- admin:* (panel, stats, users:page, user:id, pet:id, edit:id:action, inv:id, inv_add:id:item, currency_menu, currency:id:delta, backup, refresh_users, notifications, check_pets_notifications, bcast:* ...)
+Большинство magic/shop callbacks редактируют текущее сообщение через _edit_magic_sword_message/safe-фолбэк; некоторые отправляют новое при невозможности edit.
+
+6. ВСЕ ПОЛЬЗОВАТЕЛЬСКИЕ ФРАЗЫ И ТЕКСТЫ
+Группы реализованы в коде:
+- start/create: привет, выбор пола, ввод имени, ошибки пустого имени.
+- main menu/help/profile/status/inventory/travel/battle/shop/training/potions/magic placeholder/skills/admin.
+- mood labels: excellent/content/calm/tired/hungry/dirty/sad/anxious/critical локализуются MOOD_MAP.
+- raccoon phrases: storage.py get_pet_status_phrase(), наборы hunger/clean/love/energy/good/adventure.
+- low-needs notifications: отдельные тексты, есть special-case low_energy.
+- errors/guards: нет питомца, нет предмета, недостаточно монет, категория недоступна и т.д.
+Типы: часть статические, часть детерминированно-псевдослучайные (индекс фразы от seed), часть действительно случайные (GROUP_FLAVOR_LINES).
+
+7. МОДЕЛЬ ДАННЫХ ПОЛЬЗОВАТЕЛЯ И ПИТОМЦА
+По storage.py и ensure defaults:
+user: id(str key в JSON), username, first_name, last_seen_at/metadata-поля.
+pet:
+- base: name, gender, level, exp, currency, mood
+- needs: satiety, cleanliness, love, energy
+- inventory: dict item_id->int
+- skills: strength, agility, instinct
+- timestamps: created_at, updated_at, last_need_tick_at, last_sleep_at, last_low_needs_notification_at
+- travel: total_travels, last_event, optional current_location
+- battle: None или dict (enemy_id/location_id/win_chance/travel_context...)
+- flags: level_up_blocked и др. служебные в travel/boss flow.
+Миграции: ensure_* функции добивают недостающие поля, исправляют невалидные типы.
+
+8. СИСТЕМА ПОТРЕБНОСТЕЙ И НАСТРОЕНИЯ
+- tick: NEEDS_TICK_MINUTES=30.
+- recalculate_needs/touch_user_needs: вычисляет ticks по timestamp.
+- decay/regen за тик: satiety -2, cleanliness -1, love -1, energy +3; clamp по max уровня.
+- max needs: get_max_need_value/get_pet_max_needs (масштаб с уровнем).
+- mood: update_pet_mood(), пороги по критичным/низким needs.
+- фразы: get_pet_status_phrase(), выбор по lowest need/overall state.
+- статус-бары: _need_bar/_need_block в handlers/menu.py.
+
+9. БЫСТРЫЙ УХОД НА СТАТУСЕ
+Inline callbacks:
+- pet_care:feed -> берет первый доступный item из category food
+- pet_care:clean -> category cleanliness
+- pet_care:play -> category love
+- pet_care:sleep -> sleep_pet (cooldown SLEEP_COOLDOWN 24h)
+- pet_care:menu -> возврат в главное меню
+Если предметов нет -> текст о нехватке и магазин.
+Update экрана: _refresh_pet_care_card пытается edit_caption/edit_text, fallback -> answer.
+
+10. ИНВЕНТАРЬ
+Структура: dict item_id->count int.
+DEFAULT_INVENTORY включает food, soap, toy, energy_potion, hearty_snack, forest_honey, fluffy_shampoo, comb, yarn_ball, fun_toy, big_energy_potion, strength/agility/instinct_scroll.
+Категорийный подсчет: get_inventory_category_count по ITEM_CATALOG.category.
+Изменения инвентаря: add_inventory_item, consume_inventory_item, shop_purchase, perform_travel drops/events, train_skill consume scroll, update_pet_need consume care item, admin_add_inventory_item.
+
+11. ПОЛНЫЙ КАТАЛОГ ПРЕДМЕТОВ
+ITEM_CATALOG:
+food(яблоко)+50 satiety price5
+hearty_snack +90 satiety price12
+forest_honey +140 satiety price22
+soap +50 cleanliness price7
+fluffy_shampoo +90 cleanliness price14
+comb +35 cleanliness price4
+toy +50 love price8
+yarn_ball +80 love price14
+fun_toy +120 love price24
+energy_potion +50 energy price12
+big_energy_potion +100 energy price25
+Свитки есть в inventory/events/training, но НЕ в ITEM_CATALOG как use-item care.
+
+12. СВИТКИ
+Существуют: strength_scroll, agility_scroll, instinct_scroll.
+Где живут:
+- DEFAULT_INVENTORY: да
+- ITEM_CATALOG: нет
+- TRAVEL_EVENTS rare: да
+- battle drop (win): может случайно дропнуть scroll
+- admin add: да (admin:inv_add)
+- shop: не продаются (SHOP_ITEMS не содержит scroll)
+Потребление: train_skill() 1 scroll на тренировку соответствующего навыка.
+Без свитка: train_skill -> fail + scroll_key для текста.
+Риск: частичная «разъединенность» со стандартным item-каталогом (нет единого источника правды).
+
+13. ТРЕНИРОВКИ
+Навыки: strength/agility/instinct default 0.
+Стоимость: энергия 15 + 1 соответствующий свиток.
+Награда: +1 к навыку + EXP (через add_exp в train_skill).
+Кнопки: inline magic_train:* и legacy reply BTN_TRAIN_*.
+No-scroll/no-energy: отдельные тексты.
+Влияние на бой/travel: расчет win chance/flee/drop scaling uses skills, особенно instinct.
+
+14. МАГИЯ И МЕЧ
+Кнопка в меню открывает гибридный flow.
+Inline submenu: тренировки/зелья/магия/навыки.
+Реально реализовано: training, potions, skills.
+Placeholder: magic раздел с текстом "откроется позже".
+Back: magic_*:back/main callbacks, чаще edit current message.
+
+15. ЗЕЛЬЯ
+IDs: energy_potion, big_energy_potion.
+Effects: +50/+100 energy.
+Использование: из care reply и из inline potion menu.
+Покупка: в магазине категория potions.
+Дропы: обычные дропы включают energy_potion, big_energy — нет в random drop list battle (по текущей выборке).
+Админ-добавление: малое зелье есть в _inv_keyboard; большое через прямую правку/другие пути не вынесено отдельной кнопкой.
+
+16. МАГАЗИН
+Категории, реально отдаваемые get_shop_categories(): food, household, toys, potions.
+Плейсхолдер-категории в map UI: weapons/armor/accessories/materials (в кнопочной map есть, но не выдаются в реальном списке категорий).
+Покупка: shop_buy:item -> shop_purchase (проверка валюты, списание, +1 item).
+Риск: mismatch между потенциальными категориями и реально доступными.
+
+17. ПУТЕШЕСТВИЯ
+Данные локаций: storage.TRAVEL_LOCATIONS (100 уровней).
+Дублирование: keyboards.TRAVEL_LOCATIONS содержит параллельную карту (без costs/rewards), риск рассинхронизации.
+Окно доступа: показываются ~3 локации вокруг текущего уровня.
+Расходы/награды: per-location costs/rewards + event effects.
+События: good/neutral/bad/rare/enemy/boss gating.
+Переход в бой: если event type enemy -> battle state + экран боя.
+No-pet/no-energy/insufficient needs handled текстом.
+
+18. БОИ
+Старт: из travel enemy event.
+battle state: enemy_id, location_id, win_chance, travel_context.
+Атака: resolve_battle_attack, win probability clamp 15..90.
+Победа: exp/currency + возможный item drop + возможно scroll drop + boss unlock logic.
+Поражение: penalties needs.
+Побег: resolve_battle_run, flee chance = 55 + agility*3 + instinct - difficulty*7 (clamp 20..90).
+Cleanup: pet['battle']=None в attack/run resolve.
+
+19. ЭКОНОМИКА
+coins=pet.currency.
+Доход: travel base rewards + event currency + battle win reward.
+Расход: shop purchase.
+Admin edits: +10/+50/+100/-10 или +100 money в pet edit.
+Баланс-риски: высокие late-game награды и частые покупки дешевых предметов требуют тестов экономической кривой.
+
+20. УВЕДОМЛЕНИЯ
+Авто low-needs:
+- should_send_low_needs_notification(pet)
+- cooldown через last_low_needs_notification_at.
+- mark_low_needs_notification_sent.
+Логи: data/notifications.json через append_notification_log/get_notification_log/get_notification_log_stats.
+Статусы: sent/failed/skipped.
+Ошибки доставки: TelegramForbiddenError/TelegramBadRequest/TelegramAPIError логируются class name.
+Поля логов (по коду): user_id, username, first_name, pet_name, reason, needs, status, error, sent_at.
+
+21. АДМИНКА
+Auth: is_admin(user_id) по ADMIN_IDS.
+Возможности:
+- panel, stats, users list paging
+- user detail/pet detail
+- edit pet: level/exp/money/strength/agility/instinct/restore needs/clear battle
+- inventory add
+- currency quick edits
+- backup create/send
+- notifications dashboard + manual check all pets
+- broadcast all/selected user with preview+confirm
+Риски: one big callback parser, broad except в некоторых ветках рассылки/массовых операций.
+
+22. ИЗОБРАЖЕНИЯ И АССЕТЫ
+handlers/images.py SCREEN_IMAGES map:
+start, main_menu, pet, inventory, shop, travel, letter, admin, shop_food, shop_household, shop_toys, shop_potions.
+Поведение: если файл есть -> answer_photo(caption); иначе answer(text).
+Риск: TelegramAPIError при photo send глушится pass.
+
+23. REPLYKEYBOARD VS INLINEKEYBOARD
+Reply: глобальная навигация, travel выбор, battle reply, legacy training/care.
+Inline: быстрый уход, magic&sword submenu, shop buy, админ-панель.
+Смешанный UX риск: пользователь прыгает между edit-in-place inline и новыми сообщениями reply.
+
+24. ЗАГЛУШКИ, PASS, BROAD EXCEPT, TODO/FIXME
+Найдено:
+- handlers/images.py except TelegramAPIError: pass
+- handlers/menu.py несколько pass в fallback edit/send
+- magic placeholder текст "Этот раздел откроется позже"
+- broad except в storage/admin при JSON/массовых операциях
+- TODO/FIXME явных почти нет, но audit doc отмечает placeholder/pass.
+Значимость: скрытие ошибок и сложность диагностики production проблем.
+
+25. РЕАЛИЗОВАНО / ЧАСТИЧНО / ЗАГЛУШКА / ОТСУТСТВУЕТ
+Реализовано: pet creation, status, needs decay, mood, phrases, inventory, quick care, shop, travel, battle, training, potions, notifications, admin panel, backups, broadcast, image fallback.
+Частично: magic module (обертка), scroll economy cohesion, UX consistency.
+Заглушка: magic placeholder.
+Отсутствует: полноценные equipment/weapons/armor/crafting systems как gameplay-механики (есть только намеки категорий).
+
+26. БАРДАК И ТЕХНИЧЕСКИЙ ДОЛГ
+- Монолиты: storage.py + handlers/menu.py.
+- Дубли карты локаций (storage/keyboards).
+- Callback sprawl, длинные ветвления.
+- Непоследовательный UX edit/new message.
+- Silent exceptions.
+- Частичная рассинхронизация item/shop/category maps.
+- Админ-мутирующие операции без granular audit trail.
+
+27. ГЕНЕРАЛЬНЫЙ МАРАФЕТ: ПЛАН МАЛЕНЬКИХ PR
+PR-1: Выделить travel location catalog в единый модуль. Files: storage.py,keyboards.py,handlers/menu.py. Behavior changes: нет. Risk: low. Tests: py_compile + compare ids script + ручной travel smoke.
+PR-2: Убрать silent pass, заменить на безопасное логирование. Files: handlers/images.py,handlers/menu.py,handlers/admin.py. Behavior: нет gameplay. Risk: low.
+PR-3: Разделить handlers/menu.py на модули screens/care/travel/battle/shop/magic. Behavior: нет. Risk: medium.
+PR-4: Централизовать callback constants. Behavior: нет. Risk: medium.
+PR-5: Единый item registry (включая scroll meta) без изменения баланса. Behavior: нет. Risk: medium.
+PR-6: Админ callback router decomposition + unit helpers. Risk: medium.
+PR-7: Text constants normalization RU/EN. Risk: low.
+PR-8: Add schema validator for users.json migration path. Risk: medium.
+
+28. ФИНАЛЬНЫЙ ЧЕКЛИСТ
+Безопасно делать дальше:
+- структурный рефактор без изменения формул/баланса,
+- устранение дублирования данных,
+- улучшение диагностики ошибок.
+Пока не трогать без отдельного тест-плана:
+- формулы наград/боев/дропа,
+- max needs scaling,
+- admin мутации экономики.
+Обязательные ручные Telegram тесты:
+- /start new/existing,
+- status quick care callbacks,
+- travel->battle->attack/run,
+- shop buy flows,
+- magic inline navigation,
+- admin users/edit/broadcast/notifications.
+Серверные команды после будущих PR:
+- python -m py_compile ...
+- git diff --name-only
+- smoke run python main.py на тестовом BOT_TOKEN.
+
+ПРОВЕРКА КОМАНД
+1) python -m py_compile ... -> успешно (exit 0)
+2) git status --short -> пусто до создания отчета
+3) git diff --name-only -> пусто до создания отчета
+4-13) rg-команды выполнены, ключевые совпадения зафиксированы в разделах отчета.
+
+ПРИМЕЧАНИЕ ПО data/users.json
+Файл data/users.json в этой среде отсутствует или недоступен для чтения в момент проверки; персональные данные не выводились.
